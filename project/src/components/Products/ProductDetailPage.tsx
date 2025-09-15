@@ -20,40 +20,88 @@ const ProductDetailPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showReviewForm, setShowReviewForm] = useState(false);
   const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
+  const [showErrorMessage, setShowErrorMessage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     if (productId) {
-      const products = JSON.parse(localStorage.getItem('products') || '[]');
-      const foundProduct = products.find((p: Product) => p.id === productId);
-      setProduct(foundProduct || null);
+      const loadProduct = async () => {
+        try {
+          // First try to find in localStorage
+          const products = JSON.parse(localStorage.getItem('products') || '[]');
+          let foundProduct = products.find((p: Product) => p.id === productId);
+          
+          // If not found, fetch from API
+          if (!foundProduct) {
+            const apiProduct = await apiService.getProductById(productId);
+            if (apiProduct) {
+              foundProduct = {
+                id: apiProduct._id,
+                shopId: String(apiProduct.shopId),
+                categoryId: String(apiProduct.categoryId),
+                productName: apiProduct.productName,
+                description: apiProduct.description,
+                price: apiProduct.price,
+                stockQuantity: apiProduct.stockQuantity,
+                imageUrls: apiProduct.imageUrls ?? [],
+                status: apiProduct.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+                createdAt: apiProduct.createdAt,
+                updatedAt: apiProduct.updatedAt,
+              };
+              
+              // Save to localStorage
+              localStorage.setItem('products', JSON.stringify([...products, foundProduct]));
+            }
+          }
+          
+          setProduct(foundProduct || null);
 
-      if (foundProduct) {
-        const shops = JSON.parse(localStorage.getItem('shops') || '[]');
-        const productShop = shops.find((s: Shop) => s.id === foundProduct.shopId);
-        setShop(productShop || null);
+          if (foundProduct) {
+            const shops = JSON.parse(localStorage.getItem('shops') || '[]');
+            const productShop = shops.find((s: Shop) => s.id === foundProduct.shopId);
+            setShop(productShop || null);
 
-        const allReviews = JSON.parse(localStorage.getItem('reviews') || '[]');
-        const productReviews = allReviews.filter((r: Review) => r.productId === productId);
-        setReviews(productReviews);
+            const allReviews = JSON.parse(localStorage.getItem('reviews') || '[]');
+            const productReviews = allReviews.filter((r: Review) => r.productId === productId);
+            setReviews(productReviews);
 
-        const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
-        setUsers(allUsers);
-      }
-      setLoading(false);
+            const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
+            setUsers(allUsers);
+          }
+        } catch (error) {
+          console.error('Error loading product:', error);
+        } finally {
+          setLoading(false);
+        }
+      };
+      
+      loadProduct();
     }
   }, [productId]);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (product && user?.role === 'customer') {
-      addToCart(product.id, quantity);
-      // Show success message or redirect to cart
+      try {
+        await addToCart(product.id, quantity);
+        // Show success message
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to add to cart');
+        setShowErrorMessage(true);
+        setTimeout(() => setShowErrorMessage(false), 3000);
+      }
     }
   };
 
-  const handleBuyNow = () => {
+  const handleBuyNow = async () => {
     if (product && user?.role === 'customer') {
-      addToCart(product.id, quantity);
-      navigate('/cart');
+      try {
+        await addToCart(product.id, quantity);
+        navigate('/cart');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to add to cart');
+        setShowErrorMessage(true);
+        setTimeout(() => setShowErrorMessage(false), 3000);
+      }
     }
   };
 
@@ -122,6 +170,22 @@ const ProductDetailPage: React.FC = () => {
           <ArrowLeft className="h-5 w-5 mr-2" />
           Back
         </button>
+
+        {/* Error Notification */}
+        {showErrorMessage && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-800">{errorMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
           {/* Product Images */}
@@ -239,6 +303,11 @@ const ProductDetailPage: React.FC = () => {
                         </option>
                       ))}
                     </select>
+                    {product.stockQuantity < 10 && (
+                      <p className="text-sm text-gray-500 mt-1">
+                        Only {product.stockQuantity} available
+                      </p>
+                    )}
                   </div>
 
                   <div className="flex space-x-4">

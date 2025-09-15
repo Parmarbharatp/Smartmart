@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Edit2, Trash2, Package } from 'lucide-react';
 import { Product, Shop, Category } from '../../types';
+import { apiService } from '../../services/api';
 import AIAssistant from '../AI/AIAssistant';
 
 interface ProductManagementProps {
@@ -23,31 +24,61 @@ const ProductManagement: React.FC<ProductManagementProps> = ({ shop, products, o
     setShowAddForm(true);
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
-      const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-      const updatedProducts = allProducts.filter((p: Product) => p.id !== productId);
-      localStorage.setItem('products', JSON.stringify(updatedProducts));
-      
-      const shopProducts = updatedProducts.filter((p: Product) => p.shopId === shop.id);
-      onProductsUpdated(shopProducts);
-    }
+  const handleDeleteProduct = async (productId: string) => {
+    if (!window.confirm('Are you sure you want to delete this product?')) return;
+    await apiService.deleteProduct(productId);
+    const refreshed = await apiService.getShopProducts({ shopId: shop.id, limit: 100 });
+    const normalized: Product[] = refreshed.map((p: any) => ({
+      id: p._id,
+      shopId: String(p.shopId),
+      categoryId: String(p.categoryId),
+      productName: p.productName,
+      description: p.description,
+      price: p.price,
+      stockQuantity: p.stockQuantity,
+      imageUrls: p.imageUrls ?? [],
+      status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    }));
+    onProductsUpdated(normalized);
   };
 
-  const handleFormSubmit = (product: Product) => {
-    const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-    let updatedProducts;
-    
+  const handleFormSubmit = async (product: Product) => {
     if (editingProduct) {
-      updatedProducts = allProducts.map((p: Product) => p.id === product.id ? product : p);
+      await apiService.updateProduct(product.id, {
+        productName: product.productName,
+        description: product.description,
+        price: product.price,
+        stockQuantity: product.stockQuantity,
+        categoryId: product.categoryId,
+        imageUrls: product.imageUrls,
+      });
     } else {
-      updatedProducts = [...allProducts, product];
+      await apiService.createProduct({
+        productName: product.productName,
+        description: product.description,
+        price: product.price,
+        stockQuantity: product.stockQuantity,
+        categoryId: product.categoryId,
+        imageUrls: product.imageUrls,
+      });
     }
-    
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
-    
-    const shopProducts = updatedProducts.filter((p: Product) => p.shopId === shop.id);
-    onProductsUpdated(shopProducts);
+    const refreshed = await apiService.getShopProducts({ shopId: shop.id, limit: 100 });
+    const normalized: Product[] = refreshed.map((p: any) => ({
+      id: p._id,
+      shopId: String(p.shopId),
+      categoryId: String(p.categoryId),
+      productName: p.productName,
+      description: p.description,
+      price: p.price,
+      stockQuantity: p.stockQuantity,
+      imageUrls: p.imageUrls ?? [],
+      status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+      createdAt: p.createdAt,
+      updatedAt: p.updatedAt,
+    }));
+    onProductsUpdated(normalized);
     setShowAddForm(false);
     setEditingProduct(null);
   };
@@ -172,7 +203,41 @@ const ProductForm: React.FC<{
   onSubmit: (product: Product) => void;
   onCancel: () => void;
 }> = ({ shop, product, onSubmit, onCancel }) => {
-  const [categories] = useState<Category[]>(JSON.parse(localStorage.getItem('categories') || '[]'));
+  const [categories, setCategories] = useState<Category[]>([]);
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const cats = await apiService.getCategories();
+        const mapped = cats.map((c: any) => ({
+          id: c._id,
+          name: c.name,
+          description: c.description,
+          isBuiltIn: !!c.isBuiltIn,
+          createdAt: c.createdAt,
+        }));
+        if (mapped.length === 0) {
+          // Fallback defaults if API returns empty
+          setCategories([
+            { id: '68bea582d67a9f688b8ba040', name: 'Electronics', description: 'Electronic devices and accessories', isBuiltIn: true, createdAt: new Date().toISOString() },
+            { id: '68bea582d67a9f688b8ba041', name: 'Fashion', description: 'Clothing and accessories', isBuiltIn: true, createdAt: new Date().toISOString() },
+            { id: '68bea582d67a9f688b8ba042', name: 'Home & Garden', description: 'Home improvement and garden supplies', isBuiltIn: true, createdAt: new Date().toISOString() },
+            { id: '68bea582d67a9f688b8ba043', name: 'Food & Beverages', description: 'Food products and beverages', isBuiltIn: true, createdAt: new Date().toISOString() },
+          ]);
+        } else {
+          setCategories(mapped);
+        }
+      } catch (e) {
+        console.error('Failed to load categories', e);
+        // Last-resort fallback so the dropdown isn't empty
+        setCategories([
+          { id: '68bea582d67a9f688b8ba040', name: 'Electronics', description: 'Electronic devices and accessories', isBuiltIn: true, createdAt: new Date().toISOString() },
+          { id: '68bea582d67a9f688b8ba041', name: 'Fashion', description: 'Clothing and accessories', isBuiltIn: true, createdAt: new Date().toISOString() },
+          { id: '68bea582d67a9f688b8ba042', name: 'Home & Garden', description: 'Home improvement and garden supplies', isBuiltIn: true, createdAt: new Date().toISOString() },
+          { id: '68bea582d67a9f688b8ba043', name: 'Food & Beverages', description: 'Food products and beverages', isBuiltIn: true, createdAt: new Date().toISOString() },
+        ]);
+      }
+    })();
+  }, []);
   const [formData, setFormData] = useState({
     productName: product?.productName || '',
     description: product?.description || '',

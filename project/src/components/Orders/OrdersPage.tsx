@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Package, Truck, CheckCircle, Clock, X } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Order, Product } from '../../types';
+import { apiService } from '../../services/api';
 
 const OrdersPage: React.FC = () => {
   const { user } = useAuth();
@@ -9,16 +10,56 @@ const OrdersPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
 
   useEffect(() => {
-    if (user) {
-      const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-      const userOrders = allOrders.filter((order: Order) => order.customerId === user.id);
-      setOrders(userOrders.sort((a: Order, b: Order) => 
-        new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
-      ));
+    (async () => {
+      if (!user) return;
+      try {
+        const { orders: apiOrders } = await apiService.getMyOrders({ limit: 100 });
+        // Map backend orders into frontend type shape
+        const mappedOrders: Order[] = apiOrders.map((o: any) => ({
+          id: o._id,
+          customerId: String(o.customerId),
+          shopId: String(o.shopId),
+          orderDate: o.createdAt,
+          totalAmount: o.totalAmount,
+          status: o.status,
+          shippingAddress: o.shippingAddress,
+          paymentStatus: o.paymentStatus || 'paid',
+          items: o.items.map((it: any) => ({ productId: String(it.productId), quantity: it.quantity, priceAtPurchase: it.priceAtPurchase })),
+        }));
+        setOrders(mappedOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()));
 
-      const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-      setProducts(allProducts);
-    }
+        // Build a product cache for display
+        const uniqueProductIds = Array.from(new Set(mappedOrders.flatMap(o => o.items.map(i => i.productId))));
+        const existing: Product[] = JSON.parse(localStorage.getItem('products') || '[]');
+        const missing = uniqueProductIds.filter(id => !existing.some(p => p.id === id));
+        const fetched: Product[] = [];
+        for (const id of missing) {
+          try {
+            const prod = await apiService.getProductById(id);
+            if (prod) {
+              fetched.push({
+                id: prod._id,
+                shopId: String(prod.shopId),
+                categoryId: String(prod.categoryId),
+                productName: prod.productName,
+                description: prod.description,
+                price: prod.price,
+                stockQuantity: prod.stockQuantity,
+                imageUrls: prod.imageUrls ?? [],
+                status: prod.status,
+                createdAt: prod.createdAt,
+                updatedAt: prod.updatedAt,
+              });
+            }
+          } catch {}
+        }
+        const productCache = [...existing, ...fetched];
+        if (fetched.length > 0) localStorage.setItem('products', JSON.stringify(productCache));
+        setProducts(productCache);
+      } catch (e) {
+        console.error('Failed to load orders from API', e);
+      }
+    })();
   }, [user]);
 
   if (!user || user.role !== 'customer') {

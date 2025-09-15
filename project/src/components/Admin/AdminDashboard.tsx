@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Users, Store, Package, ShoppingBag, CheckCircle, XCircle, Truck, Edit2, Trash2, UserPlus } from 'lucide-react';
 import { User, Shop, Product, Order, Category } from '../../types';
+import { apiService } from '../../services/api';
 
 const AdminDashboard: React.FC = () => {
   const { user } = useAuth();
@@ -13,78 +14,151 @@ const AdminDashboard: React.FC = () => {
   const [deliveryBoys, setDeliveryBoys] = useState<User[]>([]);
   const [activeTab, setActiveTab] = useState<'overview' | 'users' | 'shops' | 'products' | 'categories' | 'orders' | 'delivery'>('overview');
 
+  // Helper to reload categories from DB
+  const reloadCategories = async () => {
+    try {
+      const categoriesApi = await apiService.getCategories();
+      const mappedCategories: Category[] = categoriesApi.map((c: any) => ({
+        id: c._id,
+        name: c.name,
+        description: c.description,
+        isBuiltIn: !!c.isBuiltIn,
+        createdAt: c.createdAt,
+      }));
+      setCategories(mappedCategories);
+    } catch (e) {
+      console.error('Failed to reload categories', e);
+    }
+  };
+
   useEffect(() => {
-    const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
-    setUsers(allUsers);
-    setDeliveryBoys(allUsers.filter((u: User) => u.role === 'delivery_boy'));
-    setShops(JSON.parse(localStorage.getItem('shops') || '[]'));
-    setProducts(JSON.parse(localStorage.getItem('products') || '[]'));
-    setOrders(JSON.parse(localStorage.getItem('orders') || '[]'));
-    setCategories(JSON.parse(localStorage.getItem('categories') || '[]'));
+    (async () => {
+      try {
+        const [shopsApi, productsApi, categoriesApi, usersApi] = await Promise.all([
+          apiService.getShops({ limit: 500 }),
+          apiService.getProducts({ limit: 1000 }),
+          apiService.getCategories(),
+          apiService.adminListUsers({ limit: 1000 }),
+        ]);
+
+        const mappedUsers: User[] = usersApi.map((u: any) => ({
+          id: u._id,
+          email: u.email,
+          name: u.name,
+          role: u.role,
+          phoneNumber: u.phoneNumber,
+          address: u.address,
+          createdAt: u.createdAt,
+          updatedAt: u.updatedAt,
+        }));
+        setUsers(mappedUsers);
+        setDeliveryBoys(mappedUsers.filter(u => u.role === 'delivery_boy'));
+
+        const mappedShops: Shop[] = shopsApi.map((s: any) => ({
+          id: s._id,
+          ownerId: String(s.ownerId),
+          shopName: s.shopName,
+          description: s.description,
+          address: s.address,
+          contactInfo: s.contactInfo,
+          status: s.status,
+          imageUrl: s.imageUrl,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        }));
+        setShops(mappedShops);
+
+        const mappedProducts: Product[] = productsApi.map((p: any) => ({
+          id: p._id,
+          shopId: String(p.shopId),
+          categoryId: String(p.categoryId),
+          productName: p.productName,
+          description: p.description,
+          price: p.price,
+          stockQuantity: p.stockQuantity,
+          imageUrls: p.imageUrls ?? [],
+          status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        }));
+        setProducts(mappedProducts);
+
+        const mappedCategories: Category[] = categoriesApi.map((c: any) => ({
+          id: c._id,
+          name: c.name,
+          description: c.description,
+          isBuiltIn: !!c.isBuiltIn,
+          createdAt: c.createdAt,
+        }));
+        setCategories(mappedCategories);
+
+        // Orders require auth and role; skip for now or fetch via a future admin orders endpoint
+        setOrders([]);
+      } catch (e) {
+        console.error('Failed to load admin data', e);
+      }
+    })();
   }, []);
 
-  const handleShopStatusChange = (shopId: string, newStatus: 'approved' | 'rejected') => {
-    const updatedShops = shops.map(shop =>
-      shop.id === shopId ? { ...shop, status: newStatus, updatedAt: new Date().toISOString() } : shop
-    );
-    setShops(updatedShops);
-    localStorage.setItem('shops', JSON.stringify(updatedShops));
-  };
+  // When switching to Categories tab, refresh from DB so it reflects existing data
+  useEffect(() => {
+    if (activeTab === 'categories') {
+      reloadCategories();
+    }
+  }, [activeTab]);
 
-  const handleDeleteUser = (userId: string) => {
-    if (window.confirm('Are you sure you want to delete this user?')) {
-      const updatedUsers = users.filter(u => u.id !== userId);
-      setUsers(updatedUsers);
-      localStorage.setItem('users', JSON.stringify(updatedUsers));
+  const handleShopStatusChange = async (shopId: string, newStatus: 'approved' | 'rejected') => {
+    try {
+      await apiService.updateShopStatus(shopId, newStatus);
+      setShops(prev => prev.map(s => s.id === shopId ? { ...s, status: newStatus, updatedAt: new Date().toISOString() } : s));
+    } catch (e) {
+      console.error('Failed to update shop status', e);
     }
   };
 
-  const handleUpdateUserRole = (userId: string, newRole: string) => {
-    const updatedUsers = users.map(u =>
-      u.id === userId ? { ...u, role: newRole as any, updatedAt: new Date().toISOString() } : u
-    );
-    setUsers(updatedUsers);
-    localStorage.setItem('users', JSON.stringify(updatedUsers));
+  const handleDeleteUser = (_userId: string) => {
+    alert('Deleting users via admin panel is not yet wired to the API.');
   };
 
-  const handleDeleteProduct = (productId: string) => {
-    if (window.confirm('Are you sure you want to delete this product?')) {
-      const updatedProducts = products.filter(p => p.id !== productId);
-      setProducts(updatedProducts);
-      localStorage.setItem('products', JSON.stringify(updatedProducts));
+  const handleUpdateUserRole = (_userId: string, _newRole: string) => {
+    alert('Updating user roles is not yet wired to the API.');
+  };
+
+  const handleDeleteProduct = async (productId: string) => {
+    if (!window.confirm('Are you sure you want to delete this product?')) return;
+    try {
+      await apiService.deleteProduct(productId);
+      setProducts(prev => prev.filter(p => p.id !== productId));
+    } catch (e) {
+      console.error('Failed to delete product', e);
     }
   };
 
-  const handleAssignDeliveryBoy = (orderId: string, deliveryBoyId: string) => {
-    const updatedOrders = orders.map(order =>
-      order.id === orderId 
-        ? { ...order, deliveryBoyId, deliveryStatus: 'assigned', status: 'shipped' }
-        : order
-    );
-    setOrders(updatedOrders);
-    localStorage.setItem('orders', JSON.stringify(updatedOrders));
+  const handleAssignDeliveryBoy = (_orderId: string, _deliveryBoyId: string) => {
+    alert('Assigning delivery via API not yet implemented in UI.');
   };
 
-  const handleAddCategory = (categoryName: string, description: string) => {
-    const newCategory: Category = {
-      id: Date.now().toString(),
-      name: categoryName,
-      description,
-      isBuiltIn: false,
-      addedBy: user!.id,
-      createdAt: new Date().toISOString()
-    };
-    
-    const updatedCategories = [...categories, newCategory];
-    setCategories(updatedCategories);
-    localStorage.setItem('categories', JSON.stringify(updatedCategories));
+  const handleAddCategory = async (categoryName: string, description: string) => {
+    try {
+      const c = await apiService.createCategory({ name: categoryName, description });
+      if (c) {
+        // After creating, reload to reflect DB truth (handles duplicates/validation)
+        await reloadCategories();
+      }
+    } catch (e) {
+      console.error('Failed to add category', e);
+      alert('Failed to add category. Make sure you are logged in as admin.');
+    }
   };
 
-  const handleDeleteCategory = (categoryId: string) => {
-    if (window.confirm('Are you sure you want to delete this category?')) {
-      const updatedCategories = categories.filter(c => c.id !== categoryId);
-      setCategories(updatedCategories);
-      localStorage.setItem('categories', JSON.stringify(updatedCategories));
+  const handleDeleteCategory = async (categoryId: string) => {
+    if (!window.confirm('Are you sure you want to delete this category?')) return;
+    try {
+      await apiService.deleteCategory(categoryId);
+      setCategories(prev => prev.filter(c => c.id !== categoryId));
+    } catch (e) {
+      console.error('Failed to delete category', e);
+      alert('Failed to delete category. Ensure there are no products in it and you have admin rights.');
     }
   };
 
@@ -424,20 +498,28 @@ const ProductsTab: React.FC<{
   shops: Shop[];
   categories: Category[];
   onDeleteProduct: (productId: string) => void;
-}> = ({ products, shops, categories, onDeleteProduct }) => (
+}> = ({ products, shops, categories, onDeleteProduct }) => {
+  const [visibleCount, setVisibleCount] = useState<number>(2); // load 2 cards initially
+
+  const visibleProducts = products.slice(0, visibleCount);
+  const canLoadMore = visibleCount < products.length;
+
+  return (
   <div>
     <h3 className="text-lg font-semibold text-gray-900 mb-4">Product Management</h3>
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      {products.map((product) => {
+        {visibleProducts.map((product) => {
         const shop = shops.find(s => s.id === product.shopId);
         const category = categories.find(c => c.id === product.categoryId);
         return (
           <div key={product.id} className="bg-white border border-gray-200 rounded-lg p-4">
-            <div className="aspect-square bg-gray-200 rounded-lg mb-4">
+              <div className="aspect-square bg-gray-200 rounded-lg mb-4 overflow-hidden">
               <img
                 src={product.imageUrls[0]}
                 alt={product.productName}
                 className="w-full h-full object-cover rounded-lg"
+                  loading="lazy"
+                  decoding="async"
               />
             </div>
             <h4 className="font-medium text-gray-900 mb-1">{product.productName}</h4>
@@ -458,8 +540,19 @@ const ProductsTab: React.FC<{
         );
       })}
     </div>
+      {canLoadMore && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={() => setVisibleCount(c => Math.min(c + 2, products.length))}
+            className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300"
+          >
+            Load more
+          </button>
+        </div>
+      )}
   </div>
 );
+};
 
 // Orders Tab Component
 const OrdersTab: React.FC<{

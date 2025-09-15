@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Package, ShoppingBag, DollarSign, Star } from 'lucide-react';
 import { Shop, Product, Order } from '../../types';
+import { apiService } from '../../services/api';
 import ProductManagement from './ProductManagement';
 
 const ShopDashboard: React.FC = () => {
@@ -12,24 +13,50 @@ const ShopDashboard: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'orders'>('overview');
 
   useEffect(() => {
-    if (user) {
-      // Get shop data
-      const shops = JSON.parse(localStorage.getItem('shops') || '[]');
-      const userShop = shops.find((s: Shop) => s.ownerId === user.id);
-      setShop(userShop || null);
+    const load = async () => {
+      if (!user) return;
+      try {
+        const myShop = await apiService.getMyShop();
+        if (myShop) {
+          // Normalize to frontend type
+          const normalizedShop: Shop = {
+            id: myShop._id,
+            ownerId: myShop.ownerId,
+            shopName: myShop.shopName,
+            description: myShop.description,
+            address: myShop.address,
+            contactInfo: myShop.contactInfo,
+            status: myShop.status,
+            imageUrl: myShop.imageUrl,
+            createdAt: myShop.createdAt,
+            updatedAt: myShop.updatedAt,
+          };
+          setShop(normalizedShop);
 
-      if (userShop) {
-        // Get products
-        const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-        const shopProducts = allProducts.filter((p: Product) => p.shopId === userShop.id);
-        setProducts(shopProducts);
-
-        // Get orders
-        const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-        const shopOrders = allOrders.filter((o: Order) => o.shopId === userShop.id);
-        setOrders(shopOrders);
+          const prods = await apiService.getShopProducts({ shopId: myShop._id, limit: 100 });
+          const normalizedProducts: Product[] = prods.map((p: any) => ({
+            id: p._id,
+            shopId: String(p.shopId),
+            categoryId: String(p.categoryId),
+            productName: p.productName,
+            description: p.description,
+            price: p.price,
+            stockQuantity: p.stockQuantity,
+            imageUrls: p.imageUrls ?? [],
+            status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+            createdAt: p.createdAt,
+            updatedAt: p.updatedAt,
+          }));
+          setProducts(normalizedProducts);
+        } else {
+          setShop(null);
+        }
+      } catch (e) {
+        console.error('Failed to load shop/products from backend', e);
+        setShop(null);
       }
-    }
+    };
+    load();
   }, [user]);
 
   const handleShopCreated = (newShop: Shop) => {
@@ -336,36 +363,39 @@ const ShopRegistration: React.FC<{ onShopCreated: (shop: Shop) => void }> = ({ o
     setIsSubmitting(true);
 
     try {
-      // Convert image file to base64 for storage (in a real app, you'd upload to a server)
-      let imageUrl = 'https://images.pexels.com/photos/264636/pexels-photo-264636.jpeg?auto=compress&cs=tinysrgb&w=500';
-      
+      // Optional: convert image to data URL just to keep UX parity; backend expects imageUrl
+      let imageUrl: string | undefined = undefined;
       if (formData.imageFile) {
-        const reader = new FileReader();
-        reader.onload = (e) => {
-          imageUrl = e.target?.result as string;
-        };
-        reader.readAsDataURL(formData.imageFile);
+        imageUrl = await new Promise<string>((resolve) => {
+          const reader = new FileReader();
+          reader.onload = () => resolve(reader.result as string);
+          reader.readAsDataURL(formData.imageFile!);
+        });
       }
 
-      const newShop: Shop = {
-        id: Date.now().toString(),
-        ownerId: user!.id,
+      const created = await apiService.createShop({
         shopName: formData.shopName.trim(),
         description: formData.description.trim(),
         address: formData.address.trim(),
         contactInfo: formData.contactInfo.trim(),
-        status: 'pending',
-        imageUrl: imageUrl,
-        imageFile: formData.imageFile || undefined,
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString()
+        imageUrl,
+      });
+
+      const shopFromApi = created.shop ?? created; // support either wrapper
+      const normalizedShop: Shop = {
+        id: shopFromApi._id,
+        ownerId: shopFromApi.ownerId,
+        shopName: shopFromApi.shopName,
+        description: shopFromApi.description,
+        address: shopFromApi.address,
+        contactInfo: shopFromApi.contactInfo,
+        status: shopFromApi.status,
+        imageUrl: shopFromApi.imageUrl,
+        createdAt: shopFromApi.createdAt,
+        updatedAt: shopFromApi.updatedAt,
       };
 
-      const shops = JSON.parse(localStorage.getItem('shops') || '[]');
-      shops.push(newShop);
-      localStorage.setItem('shops', JSON.stringify(shops));
-
-      onShopCreated(newShop);
+      onShopCreated(normalizedShop);
       setShowSuccess(true);
     } finally {
       setIsSubmitting(false);

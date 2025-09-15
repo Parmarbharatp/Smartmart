@@ -2,8 +2,14 @@ import express from 'express';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { body, validationResult } from 'express-validator';
+import crypto from 'crypto';
+import nodemailer from 'nodemailer';
+import dotenv from 'dotenv';
 import { User } from '../models/User.js';
 import { generateToken, verifyToken } from '../middleware/auth.js';
+
+// Load environment variables
+dotenv.config({ path: './config.env' });
 
 const router = express.Router();
 
@@ -370,6 +376,146 @@ router.post('/logout', verifyToken, (req, res) => {
   });
 });
 
+// Email transporter (use SMTP env)
+console.log('📧 Creating email transporter with config:', {
+  host: process.env.SMTP_HOST,
+  port: process.env.SMTP_PORT,
+  secure: process.env.SMTP_SECURE,
+  user: process.env.SMTP_USER,
+  hasPass: !!process.env.SMTP_PASS
+});
+
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST,
+  port: parseInt(process.env.SMTP_PORT || '587'),
+  secure: process.env.SMTP_SECURE === 'true',
+  auth: process.env.SMTP_USER && process.env.SMTP_PASS ? {
+    user: process.env.SMTP_USER,
+    pass: process.env.SMTP_PASS,
+  } : undefined,
+});
+
+async function sendResetOtpEmail(to, otp) {
+  console.log('📧 sendResetOtpEmail called with:', { to, otp });
+  
+  const appName = process.env.APP_NAME || 'SmartMart';
+  const from = process.env.EMAIL_FROM || `${appName} <no-reply@smartmart.local>`;
+  const subject = `${appName} Password Reset OTP`;
+  const html = `
+    <div style="font-family:Arial,sans-serif;">
+      <h2>Password Reset Request</h2>
+      <p>Your OTP code is:</p>
+      <div style="font-size:22px;font-weight:bold;letter-spacing:4px;">${otp}</div>
+      <p>This code will expire in 10 minutes. If you did not request this, you can ignore this email.</p>
+    </div>
+  `;
+  
+  console.log('📧 Email details:', { from, to, subject, appName });
+  console.log('📧 SMTP_HOST exists:', !!process.env.SMTP_HOST);
+  
+  if (!process.env.SMTP_HOST) {
+    console.log(`📧 Dev Mode OTP for ${to}: ${otp}`);
+    return;
+  }
+  
+  try {
+    console.log('📧 Attempting to send email...');
+    const result = await transporter.sendMail({ from, to, subject, html });
+    console.log('📧 Email sent successfully:', result.messageId);
+  } catch (e) {
+    console.error('❌ Email send failed, falling back to console OTP:', e);
+    console.log(`📧 OTP for ${to}: ${otp}`);
+    // Do not throw further; allow flow to proceed
+  }
+}
+
+// @route   POST /api/auth/forgot-password
+// @desc    Initiate password reset by generating a token
+// @access  Public
+router.post('/forgot-password', [body('email').isEmail().withMessage('Valid email is required')], async (req, res) => {
+  try {
+    console.log('🔍 Forgot password request for:', req.body.email);
+    
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      console.log('❌ Validation errors:', errors.array());
+      return res.status(400).json({ status: 'error', message: 'Validation failed', errors: errors.array() });
+    }
+
+    const { email } = req.body;
+    const user = await User.findOne({ email: email.toLowerCase() });
+    console.log('🔍 User found:', !!user);
+
+    // Respond with success even if user not found (avoid user enumeration)
+    if (!user) {
+      console.log('❌ User not found, returning generic success message');
+      return res.status(200).json({ status: 'success', message: 'If that email exists, a reset link has been sent' });
+    }
+
+    // Generate 6-digit OTP
+    const otp = (Math.floor(100000 + Math.random() * 900000)).toString();
+    const expires = new Date(Date.now() + 1000 * 60 * 10); // 10 minutes
+    console.log('🔑 Generated OTP:', otp, 'Expires:', expires);
+
+    user.resetOtpCode = otp;
+    user.resetOtpExpires = expires;
+    await user.save();
+    console.log('💾 OTP saved to database');
+
+    console.log('📧 Sending OTP email to:', user.email);
+    await sendResetOtpEmail(user.email, otp);
+    console.log('✅ OTP email sent successfully');
+
+    return res.status(200).json({ status: 'success', message: 'If that email exists, an OTP has been sent' });
+  } catch (error) {
+    console.error('❌ Forgot password error:', error);
+    return res.status(500).json({ status: 'error', message: 'Internal server error initiating password reset' });
+  }
+});
+
+// @route   POST /api/auth/reset-password
+// @desc    Reset password using token
+// @access  Public
+router.post(
+  '/reset-password',
+  [
+    body('email').isEmail().withMessage('Valid email is required'),
+    body('otp').notEmpty().withMessage('OTP is required'),
+    body('password').isLength({ min: 6 }).withMessage('Password must be at least 6 characters')
+  ],
+  async (req, res) => {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return res.status(400).json({ status: 'error', message: 'Validation failed', errors: errors.array() });
+      }
+
+      const { email, otp, password } = req.body;
+
+      const user = await User.findOne({
+        email: email.toLowerCase(),
+        resetOtpCode: otp,
+        resetOtpExpires: { $gt: new Date() }
+      }).select('+password');
+
+      if (!user) {
+        return res.status(400).json({ status: 'error', message: 'Invalid or expired OTP' });
+      }
+
+      const saltRounds = 12;
+      user.password = await bcrypt.hash(password, saltRounds);
+      user.resetOtpCode = null;
+      user.resetOtpExpires = null;
+      await user.save();
+
+      return res.status(200).json({ status: 'success', message: 'Password has been reset successfully' });
+    } catch (error) {
+      console.error('Reset password error:', error);
+      return res.status(500).json({ status: 'error', message: 'Internal server error resetting password' });
+    }
+  }
+);
+
 // @route   POST /api/auth/check-email
 // @desc    Check if email already exists
 // @access  Public
@@ -404,3 +550,30 @@ router.post('/check-email', async (req, res) => {
 });
 
 export default router;
+// Admin: list users
+router.get('/users', verifyToken, async (req, res) => {
+  try {
+    if (req.user.role !== 'admin') {
+      return res.status(403).json({ status: 'error', message: 'Admin access required' });
+    }
+    const { page = 1, limit = 50, search, role } = req.query;
+    const query = {};
+    if (role) query.role = role;
+    if (search) {
+      query.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } },
+      ];
+    }
+    const users = await User.find(query)
+      .select('-password')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+    const total = await User.countDocuments(query);
+    res.status(200).json({ status: 'success', data: { users, pagination: { current: parseInt(page), pages: Math.ceil(total / limit), total } } });
+  } catch (e) {
+    console.error('List users error:', e);
+    res.status(500).json({ status: 'error', message: 'Internal server error while fetching users' });
+  }
+});

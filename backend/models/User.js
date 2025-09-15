@@ -53,6 +53,26 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: ''
   },
+  // Password reset
+  resetPasswordToken: {
+    type: String,
+    default: null,
+    index: true
+  },
+  resetPasswordExpires: {
+    type: Date,
+    default: null
+  },
+  // OTP based password reset
+  resetOtpCode: {
+    type: String,
+    default: null,
+    index: true
+  },
+  resetOtpExpires: {
+    type: Date,
+    default: null
+  },
   // Google OAuth fields
   googleId: {
     type: String,

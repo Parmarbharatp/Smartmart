@@ -83,3 +83,17 @@ export interface CartItem {
   productId: string;
   quantity: number;
 }
+
+// Location-related types (scaffold)
+export type LatLng = { lat: number; lng: number };
+
+export interface PlaceSuggestion {
+  description: string;
+  placeId: string;
+}
+
+export interface GeocodingResultType {
+  formattedAddress: string;
+  location: LatLng;
+  placeId?: string;
+}

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Star, ShoppingCart, Heart, Eye, Truck, Shield, Award, MapPin, Clock, Zap } from 'lucide-react';
+import { Star, ShoppingCart, Heart, Eye, Truck, Shield, Award, Clock, Zap } from 'lucide-react';
 import { Product, Review } from '../../types';
 import { useAuth } from '../../contexts/AuthContext';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -13,7 +13,6 @@ interface ProductCardProps {
 
 const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' }) => {
   const { user } = useAuth();
-  const { isDarkMode } = useTheme();
   const { addToCart } = useCart();
   const navigate = useNavigate();
   const [isWishlisted, setIsWishlisted] = useState(false);
@@ -21,6 +20,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
   const [reviews, setReviews] = useState<Review[]>([]);
   const [avgRating, setAvgRating] = useState(0);
   const [showSuccessMessage, setShowSuccessMessage] = useState(false);
+  const [showErrorMessage, setShowErrorMessage] = useState(false);
+  const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
     // Load real reviews for this product
@@ -35,22 +36,45 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
     }
   }, [product.id]);
 
-  const handleAddToCart = (e: React.MouseEvent) => {
+  const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (user?.role === 'customer' && product.status === 'available') {
-      addToCart(product.id, 1);
-      setShowSuccessMessage(true);
-      setTimeout(() => setShowSuccessMessage(false), 2000);
+      try {
+        await addToCart(product.id, 1);
+        setShowSuccessMessage(true);
+        setTimeout(() => setShowSuccessMessage(false), 2000);
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to add to cart');
+        setShowErrorMessage(true);
+        setTimeout(() => setShowErrorMessage(false), 3000);
+      }
     }
   };
 
-  const handleBuyNow = (e: React.MouseEvent) => {
+  // Show an alert on product click with available quantity
+  const handleCardClick = (e: React.MouseEvent) => {
+    // Only show alert when navigating to product details or clicking image/title
+    // Provide stock info as requested
+    if (product.status === 'available') {
+      alert(`This product has ${product.stockQuantity} item(s) available in stock.`);
+    } else {
+      alert('This product is currently out of stock.');
+    }
+  };
+
+  const handleBuyNow = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     if (user?.role === 'customer' && product.status === 'available') {
-      addToCart(product.id, 1);
-      navigate('/cart');
+      try {
+        await addToCart(product.id, 1);
+        navigate('/cart');
+      } catch (error) {
+        setErrorMessage(error instanceof Error ? error.message : 'Failed to add to cart');
+        setShowErrorMessage(true);
+        setTimeout(() => setShowErrorMessage(false), 3000);
+      }
     }
   };
 
@@ -82,11 +106,28 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
             </div>
           </div>
         )}
+
+        {/* Error Notification */}
+        {showErrorMessage && (
+          <div className="absolute top-4 right-4 bg-gradient-to-r from-red-500 to-pink-500 text-white px-6 py-3 rounded-2xl shadow-2xl z-10 border-2 border-white/20 backdrop-blur-sm">
+            <div className="flex items-center space-x-3">
+              <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
+                <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div>
+                <div className="font-bold text-sm">Error!</div>
+                <div className="text-xs opacity-90">{errorMessage}</div>
+              </div>
+            </div>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row">
           
           {/* Product Image */}
           <div className="w-full sm:w-64 h-48 sm:h-40 bg-gray-100 dark:bg-gray-800 relative overflow-hidden">
-            <Link to={`/products/${product.id}`}>
+            <Link to={`/products/${product.id}`} onClick={handleCardClick}>
               {!imageLoaded && (
                 <div className="absolute inset-0 skeleton"></div>
               )}
@@ -136,7 +177,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
           {/* Product Info */}
           <div className="flex-1 p-6">
             <div className="flex items-start justify-between mb-3">
-              <Link to={`/products/${product.id}`}>
+              <Link to={`/products/${product.id}`} onClick={handleCardClick}>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors line-clamp-2">
                   {product.productName}
                 </h3>
@@ -237,10 +278,27 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
           </div>
         </div>
       )}
+
+      {/* Error Notification */}
+      {showErrorMessage && (
+        <div className="absolute top-4 right-4 bg-gradient-to-r from-red-500 to-pink-500 text-white px-6 py-3 rounded-2xl shadow-2xl z-10 border-2 border-white/20 backdrop-blur-sm">
+          <div className="flex items-center space-x-3">
+            <div className="w-6 h-6 bg-white/20 rounded-full flex items-center justify-center">
+              <svg className="w-4 h-4 text-white" fill="currentColor" viewBox="0 0 20 20">
+                <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+              </svg>
+            </div>
+            <div>
+              <div className="font-bold text-sm">Error!</div>
+              <div className="text-xs opacity-90">{errorMessage}</div>
+            </div>
+          </div>
+        </div>
+      )}
       
       {/* Product Image */}
       <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
-        <Link to={`/products/${product.id}`}>
+        <Link to={`/products/${product.id}`} onClick={handleCardClick}>
           {!imageLoaded && (
             <div className="absolute inset-0 skeleton"></div>
           )}

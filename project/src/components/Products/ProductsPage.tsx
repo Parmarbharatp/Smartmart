@@ -3,6 +3,7 @@ import { Search, Grid, List, SlidersHorizontal, ArrowUpDown, Filter, X, ChevronD
 import { Product, Category } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useAuth } from '../../contexts/AuthContext';
+import { apiService } from '../../services/api';
 
 import ProductCard from './ProductCard';
 import Sidebar from '../Layout/Sidebar';
@@ -23,15 +24,47 @@ const ProductsPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(12);
+  const [visibleCount, setVisibleCount] = useState(12);
 
   useEffect(() => {
-    const storedProducts = JSON.parse(localStorage.getItem('products') || '[]');
-    const storedCategories = JSON.parse(localStorage.getItem('categories') || '[]');
-    
-    setProducts(storedProducts);
-    setCategories(storedCategories);
-    setFilteredProducts(storedProducts);
-    setIsLoading(false);
+    (async () => {
+      try {
+        const [prods, cats] = await Promise.all([
+          apiService.getProducts({ limit: 200 }),
+          apiService.getCategories(),
+        ]);
+        const mappedProducts: Product[] = prods.map((p: any) => ({
+          id: p._id,
+          shopId: String(p.shopId),
+          categoryId: String(p.categoryId),
+          productName: p.productName,
+          description: p.description,
+          price: p.price,
+          stockQuantity: p.stockQuantity,
+          imageUrls: p.imageUrls ?? [],
+          status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        }));
+        const mappedCategories: Category[] = cats.map((c: any) => ({
+          id: c._id,
+          name: c.name,
+          description: c.description,
+          isBuiltIn: !!c.isBuiltIn,
+          createdAt: c.createdAt,
+        }));
+        setProducts(mappedProducts);
+        setCategories(mappedCategories);
+        setFilteredProducts(mappedProducts);
+        
+        // Save products to localStorage for cart operations
+        localStorage.setItem('products', JSON.stringify(mappedProducts));
+      } catch (e) {
+        console.error('Failed to load products page data', e);
+      } finally {
+        setIsLoading(false);
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -110,7 +143,7 @@ const ProductsPage: React.FC = () => {
   const totalPages = Math.ceil(filteredProducts.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
-  const currentProducts = filteredProducts.slice(startIndex, endIndex);
+  const currentProducts = filteredProducts.slice(startIndex, Math.min(endIndex, visibleCount));
 
   const sortOptions = [
     { value: 'name', label: 'Name A-Z' },
@@ -352,6 +385,18 @@ const ProductsPage: React.FC = () => {
                     />
                   ))}
                 </div>
+
+                {/* Load More */}
+                {visibleCount < filteredProducts.length && (
+                  <div className="mt-8 flex items-center justify-center">
+                    <button
+                      onClick={() => setVisibleCount(c => Math.min(c + 12, filteredProducts.length))}
+                      className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300"
+                    >
+                      Load more products
+                    </button>
+                  </div>
+                )}
 
                 {/* Pagination */}
                 {totalPages > 1 && (

@@ -2,10 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { Search, MapPin, Star, Store, Grid, List, Filter } from 'lucide-react';
 import { Shop } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useAuth } from '../../contexts/AuthContext';
 import Sidebar from '../Layout/Sidebar';
+import { apiService } from '../../services/api';
 
 const ShopsPage: React.FC = () => {
   const { isDarkMode } = useTheme();
+  const { user } = useAuth();
   const [shops, setShops] = useState<Shop[]>([]);
   const [filteredShops, setFilteredShops] = useState<Shop[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
@@ -14,11 +17,30 @@ const ShopsPage: React.FC = () => {
   const [filters, setFilters] = useState<any>({});
 
   useEffect(() => {
-    const storedShops = JSON.parse(localStorage.getItem('shops') || '[]');
-    const approvedShops = storedShops.filter((shop: Shop) => shop.status === 'approved');
-    setShops(approvedShops);
-    setFilteredShops(approvedShops);
-  }, []);
+    (async () => {
+      try {
+        // Load all shops; we'll filter client-side to show approved + own
+        const shopsApi = await apiService.getShops({ limit: 200 });
+        const mapped: Shop[] = shopsApi.map((s: any) => ({
+          id: s._id,
+          ownerId: String(s.ownerId),
+          shopName: s.shopName,
+          description: s.description,
+          address: s.address,
+          contactInfo: s.contactInfo,
+          status: s.status,
+          imageUrl: s.imageUrl,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        }));
+        const visible = mapped.filter((s) => s.status === 'approved' || (user && s.ownerId === user.id));
+        setShops(visible);
+        setFilteredShops(visible);
+      } catch (e) {
+        console.error('Failed to load shops', e);
+      }
+    })();
+  }, [user]);
 
   useEffect(() => {
     let filtered = shops;

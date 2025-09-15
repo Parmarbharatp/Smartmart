@@ -169,6 +169,24 @@ class ApiService {
     return response.data!;
   }
 
+  // Password reset: request reset link
+  async requestPasswordReset(email: string): Promise<{ message: string }> {
+    const response = await this.request<{ message: string }>('/auth/forgot-password', {
+      method: 'POST',
+      body: JSON.stringify({ email }),
+    });
+    return { message: response.message };
+  }
+
+  // Password reset via OTP: submit new password
+  async resetPassword(params: { email: string; otp: string; password: string }): Promise<{ message: string }> {
+    const response = await this.request<{ message: string }>('/auth/reset-password', {
+      method: 'POST',
+      body: JSON.stringify(params),
+    });
+    return { message: response.message };
+  }
+
   // Check if user is authenticated
   isAuthenticated(): boolean {
     return !!this.token;
@@ -199,6 +217,171 @@ class ApiService {
       return false;
     }
     return true;
+  }
+
+  // ============ Shops ============
+  async createShop(payload: {
+    shopName: string;
+    description: string;
+    address: string;
+    contactInfo: string;
+    imageUrl?: string;
+  }): Promise<any> {
+    const response = await this.request<any>('/shops', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return response.data;
+  }
+
+  async getMyShop(): Promise<any | null> {
+    const res = await this.request<any>('/shops/owner/my-shop');
+    return res.data?.shop ?? null;
+  }
+
+  // ============ Products ============
+  async getShopProducts(params: { shopId: string; page?: number; limit?: number }): Promise<any[]> {
+    const query = new URLSearchParams({
+      page: String(params.page ?? 1),
+      limit: String(params.limit ?? 50),
+    });
+    const res = await this.request<any>(`/products/shop/${params.shopId}?${query.toString()}`);
+    return res.data?.products ?? [];
+  }
+  async getProductById(productId: string): Promise<any | null> {
+    const res = await this.request<any>(`/products/${productId}`);
+    return res.data?.product ?? null;
+  }
+
+  // ============ Orders ============
+  async createOrder(payload: {
+    shopId: string;
+    shippingAddress: string;
+    items: Array<{ productId: string; quantity: number }>;
+    paymentMethod?: string;
+    notes?: string;
+  }): Promise<any> {
+    const res = await this.request<any>('/orders', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res.data?.order;
+  }
+
+  async getMyOrders(params: { page?: number; limit?: number; status?: string } = {}): Promise<{ orders: any[]; total: number }> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.status) q.set('status', params.status);
+    const res = await this.request<any>(`/orders${q.toString() ? `?${q.toString()}` : ''}`);
+    return { orders: res.data?.orders ?? [], total: res.data?.pagination?.total ?? 0 };
+  }
+
+  async createProduct(payload: {
+    productName: string;
+    description: string;
+    price: number;
+    stockQuantity: number;
+    categoryId: string;
+    imageUrls?: string[];
+    brand?: string;
+    tags?: string[];
+  }): Promise<any> {
+    const res = await this.request<any>('/products', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res.data?.product;
+  }
+
+  async updateProduct(productId: string, updates: Partial<{
+    productName: string;
+    description: string;
+    price: number;
+    stockQuantity: number;
+    categoryId: string;
+    imageUrls: string[];
+    brand: string;
+    tags: string[];
+  }>): Promise<any> {
+    const res = await this.request<any>(`/products/${productId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
+    return res.data?.product;
+  }
+
+  async deleteProduct(productId: string): Promise<void> {
+    await this.request(`/products/${productId}`, { method: 'DELETE' });
+  }
+
+  // ============ Categories ============
+  async getCategories(): Promise<any[]> {
+    const res = await this.request<any>('/categories');
+    return res.data?.categories ?? [];
+  }
+  async createCategory(payload: { name: string; description: string; imageUrl?: string }): Promise<any> {
+    const res = await this.request<any>('/categories', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    return res.data?.category;
+  }
+  async deleteCategory(categoryId: string): Promise<void> {
+    await this.request(`/categories/${categoryId}`, { method: 'DELETE' });
+  }
+
+  // ============ Listings for Home/Pages ============
+  async getProducts(params: { page?: number; limit?: number; search?: string; categoryId?: string; shopId?: string }): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    if (params.categoryId) query.set('categoryId', params.categoryId);
+    if (params.shopId) query.set('shopId', params.shopId);
+    const res = await this.request<any>(`/products${query.toString() ? `?${query.toString()}` : ''}`);
+    return res.data?.products ?? [];
+  }
+
+  async getShops(params: { status?: 'approved' | 'pending' | 'rejected'; page?: number; limit?: number; search?: string } = {}): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search!);
+    const res = await this.request<any>(`/shops${query.toString() ? `?${query.toString()}` : ''}`);
+    return res.data?.shops ?? [];
+  }
+  async updateShopStatus(shopId: string, status: 'approved' | 'rejected' | 'pending'): Promise<any> {
+    const res = await this.request<any>(`/shops/${shopId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ status })
+    });
+    return res.data?.shop;
+  }
+
+  async adminListUsers(params: { page?: number; limit?: number; search?: string; role?: string } = {}): Promise<any[]> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.search) query.set('search', params.search);
+    if (params.role) query.set('role', params.role);
+    const res = await this.request<any>(`/auth/users${query.toString() ? `?${query.toString()}` : ''}`);
+    return res.data?.users ?? [];
+  }
+
+  // ============ Cart ============
+  async checkStock(productId: string, quantity: number = 1): Promise<{
+    available: boolean;
+    stockQuantity: number;
+    requestedQuantity: number;
+    message: string;
+  }> {
+    const res = await this.request<any>('/cart/check-stock', {
+      method: 'POST',
+      body: JSON.stringify({ productId, quantity }),
+    });
+    return res.data;
   }
 }
 

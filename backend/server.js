@@ -6,7 +6,14 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import connectDB from './config/database.js';
 import authRoutes from './routes/auth.js';
+import shopRoutes from './routes/shops.js';
+import productRoutes from './routes/products.js';
+import categoryRoutes from './routes/categories.js';
+import orderRoutes from './routes/orders.js';
+import cartRoutes from './routes/cart.js';
+import reviewRoutes from './routes/reviews.js';
 import { User } from './models/User.js';
+import { Category } from './models/Category.js';
 import bcrypt from 'bcryptjs';
 
 // Load environment variables
@@ -61,6 +68,12 @@ app.get('/health', (req, res) => {
 
 // API routes
 app.use('/api/auth', authRoutes);
+app.use('/api/shops', shopRoutes);
+app.use('/api/products', productRoutes);
+app.use('/api/categories', categoryRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/cart', cartRoutes);
+app.use('/api/reviews', reviewRoutes);
 
 // 404 handler
 app.use('*', (req, res) => {
@@ -90,13 +103,14 @@ app.listen(PORT, () => {
   console.log(`📱 Frontend URL: ${process.env.FRONTEND_URL || 'http://localhost:5173'}`);
   console.log(`🔗 Health Check: http://localhost:${PORT}/health`);
   console.log(`🔐 Auth API: http://localhost:${PORT}/api/auth`);
-  // Seed default admin if not exists
+  // Seed default data if not exists
   (async () => {
     try {
+      // Seed default admin
       const adminEmail = process.env.DEFAULT_ADMIN_EMAIL || 'admin@smartmart.com';
       const adminPassword = process.env.DEFAULT_ADMIN_PASSWORD || 'Admin@12345';
-      const existing = await User.findOne({ email: adminEmail.toLowerCase() });
-      if (!existing) {
+      const existingAdmin = await User.findOne({ email: adminEmail.toLowerCase() });
+      if (!existingAdmin) {
         const hashed = await bcrypt.hash(adminPassword, 12);
         const admin = new User({
           name: 'SmartMart Admin',
@@ -113,8 +127,42 @@ app.listen(PORT, () => {
       } else {
         console.log(`👑 Admin exists: ${adminEmail}`);
       }
+
+      // Seed default categories
+      const defaultCategories = [
+        {
+          name: 'Electronics',
+          description: 'Electronic devices and accessories',
+          isBuiltIn: true
+        },
+        {
+          name: 'Fashion',
+          description: 'Clothing and accessories',
+          isBuiltIn: true
+        },
+        {
+          name: 'Home & Garden',
+          description: 'Home improvement and garden supplies',
+          isBuiltIn: true
+        },
+        {
+          name: 'Food & Beverages',
+          description: 'Food products and beverages',
+          isBuiltIn: true
+        }
+      ];
+
+      for (const categoryData of defaultCategories) {
+        const existingCategory = await Category.findOne({ name: categoryData.name });
+        if (!existingCategory) {
+          const category = new Category(categoryData);
+          await category.save();
+          console.log(`📂 Default category created: ${categoryData.name}`);
+        }
+      }
+      console.log(`📂 Default categories checked`);
     } catch (e) {
-      console.error('Admin seed failed:', e);
+      console.error('Seed data failed:', e);
     }
   })();
 });

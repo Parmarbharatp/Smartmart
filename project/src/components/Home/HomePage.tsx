@@ -7,6 +7,7 @@ import {
   CheckCircle, Globe, CreditCard, RefreshCw, MessageCircle, ThumbsUp
 } from 'lucide-react';
 import { Product, Shop } from '../../types';
+import { apiService } from '../../services/api';
 
 const HomePage: React.FC = () => {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
@@ -15,12 +16,52 @@ const HomePage: React.FC = () => {
   const [isVisible, setIsVisible] = useState(false);
   
   useEffect(() => {
-    const products = JSON.parse(localStorage.getItem('products') || '[]');
-    const shops = JSON.parse(localStorage.getItem('shops') || '[]');
-    
-    setFeaturedProducts(products.slice(0, 8));
-    setFeaturedShops(shops.slice(0, 6));
-    setIsVisible(true);
+    (async () => {
+      try {
+        const [prods, shops] = await Promise.all([
+          apiService.getProducts({ limit: 12 }),
+          apiService.getShops({ status: 'approved', limit: 12 })
+        ]);
+        const mappedProducts: Product[] = prods.map((p: any) => ({
+          id: p._id,
+          shopId: String(p.shopId),
+          categoryId: String(p.categoryId),
+          productName: p.productName,
+          description: p.description,
+          price: p.price,
+          stockQuantity: p.stockQuantity,
+          imageUrls: p.imageUrls ?? [],
+          status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+          createdAt: p.createdAt,
+          updatedAt: p.updatedAt,
+        }));
+        const mappedShops: Shop[] = shops.map((s: any) => ({
+          id: s._id,
+          ownerId: String(s.ownerId),
+          shopName: s.shopName,
+          description: s.description,
+          address: s.address,
+          contactInfo: s.contactInfo,
+          status: s.status,
+          imageUrl: s.imageUrl,
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+        }));
+        setFeaturedProducts(mappedProducts.slice(0, 8));
+        setFeaturedShops(mappedShops.slice(0, 6));
+        
+        // Save products to localStorage for cart operations
+        const existingProducts = JSON.parse(localStorage.getItem('products') || '[]');
+        const newProducts = mappedProducts.filter(p => !existingProducts.some((ep: any) => ep.id === p.id));
+        if (newProducts.length > 0) {
+          localStorage.setItem('products', JSON.stringify([...existingProducts, ...newProducts]));
+        }
+      } catch (e) {
+        console.error('Failed to load home listings', e);
+      } finally {
+        setIsVisible(true);
+      }
+    })();
 
     // Auto-slide for hero section
     const interval = setInterval(() => {
@@ -312,13 +353,15 @@ const HomePage: React.FC = () => {
           </div>
           
           <div className="product-grid">
-            {featuredProducts.map((product) => (
+            {featuredProducts.slice(0, 12).map((product) => (
               <div key={product.id} className="card-product group">
                 <div className="relative aspect-square bg-gray-100 dark:bg-gray-800 overflow-hidden">
                   <img
                     src={product.imageUrls[0]}
                     alt={product.productName}
                     className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500"
+                    loading="lazy"
+                    decoding="async"
                   />
                   
                   {/* Overlay Actions */}

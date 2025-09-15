@@ -4,6 +4,7 @@ import { CreditCard, Wallet, Building, CheckCircle } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Product } from '../../types';
+import { apiService } from '../../services/api';
 
 declare global {
   interface Window {
@@ -20,6 +21,14 @@ const PaymentPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId, setOrderId] = useState('');
+  const RAZORPAY_KEY = (import.meta as any).env?.VITE_RAZORPAY_KEY || 'rzp_test_1234567890';
+  const [showMockCheckout, setShowMockCheckout] = useState(false);
+  const [mockTab, setMockTab] = useState<'upi' | 'card' | 'wallet'>('upi');
+  const [upiId, setUpiId] = useState('');
+  const [cardName, setCardName] = useState('');
+  const [cardNumber, setCardNumber] = useState('');
+  const [cardExpiry, setCardExpiry] = useState('');
+  const [cardCvv, setCardCvv] = useState('');
 
   const products = JSON.parse(localStorage.getItem('products') || '[]');
   const cartProducts = items.map(item => ({
@@ -39,90 +48,124 @@ const PaymentPage: React.FC = () => {
     };
   }, []);
 
+  const validatePayment = () => {
+    // Check if cart is empty
+    if (!items || items.length === 0) {
+      alert('Your cart is empty. Please add items before proceeding to payment.');
+      return false;
+    }
+
+    // Check if we have valid cart products
+    if (cartProducts.length === 0) {
+      alert('Some items in your cart are no longer available. Please refresh and try again.');
+      return false;
+    }
+
+    // Check if we have a valid shop ID
+    const shopId = cartProducts[0]?.product?.shopId;
+    if (!shopId) {
+      alert('Unable to determine the shop for this order. Please try again.');
+      return false;
+    }
+
+    return true;
+  };
+
   const handleRazorpayPayment = () => {
+    if (!validatePayment()) {
+      return;
+    }
+    
     setIsProcessing(true);
-
-    const options = {
-      key: 'rzp_test_1234567890', // Demo key
-      amount: Math.round(getCartTotal() * 100), // Amount in paise
-      currency: 'INR',
-              name: 'SmartMart',
-        description: 'Purchase from SmartMart',
-      image: '/logo.png',
-      handler: function (response: any) {
-        // Payment successful
-        handlePaymentSuccess(response.razorpay_payment_id);
-      },
-      prefill: {
-        name: user?.name,
-        email: user?.email,
-        contact: user?.phoneNumber || ''
-      },
-      theme: {
-        color: '#2563eb'
-      },
-      modal: {
-        ondismiss: function() {
-          setIsProcessing(false);
-        }
-      }
-    };
-
-    const rzp = new window.Razorpay(options);
-    rzp.open();
-  };
-
-  const handleCODPayment = () => {
-    setIsProcessing(true);
-    // Simulate processing time
-    setTimeout(() => {
-      handlePaymentSuccess('COD_' + Date.now());
-    }, 2000);
-  };
-
-  const handlePaymentSuccess = (paymentId: string) => {
-    // Create order
-    const newOrderId = Date.now().toString();
-    const order = {
-      id: newOrderId,
-      customerId: user!.id,
-      shopId: cartProducts[0]?.product.shopId || '', // Simplified for demo
-      orderDate: new Date().toISOString(),
-      totalAmount: getCartTotal(),
-      status: 'confirmed',
-      shippingAddress: user!.address || '',
-      paymentStatus: 'paid',
-      paymentId: paymentId,
-      paymentMethod: paymentMethod,
-      items: items.map(item => ({
-        productId: item.productId,
-        quantity: item.quantity,
-        priceAtPurchase: cartProducts.find(cp => cp.productId === item.productId)?.product.price || 0
-      }))
-    };
-
-    const orders = JSON.parse(localStorage.getItem('orders') || '[]');
-    orders.push(order);
-    localStorage.setItem('orders', JSON.stringify(orders));
-
-    // Update product stock
-    const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-    const updatedProducts = allProducts.map((product: Product) => {
-      const cartItem = items.find(item => item.productId === product.id);
-      if (cartItem) {
-        return {
-          ...product,
-          stockQuantity: Math.max(0, product.stockQuantity - cartItem.quantity)
-        };
-      }
-      return product;
-    });
-    localStorage.setItem('products', JSON.stringify(updatedProducts));
-
-    clearCart();
-    setOrderId(newOrderId);
-    setOrderPlaced(true);
+    // Always use mock checkout in this build (no external keys needed)
+    setShowMockCheckout(true);
     setIsProcessing(false);
+  };
+
+  const handleCODPayment = async () => {
+    if (!validatePayment()) {
+      return;
+    }
+    
+    setIsProcessing(true);
+    try {
+      // For COD, we don't need to wait for external payment processing
+      // Just create the order directly
+      await handlePaymentSuccess('COD_' + Date.now());
+    } catch (error) {
+      console.error('COD payment failed:', error);
+      alert('Failed to place COD order. Please try again.');
+      setIsProcessing(false);
+    }
+  };
+
+  const handlePaymentSuccess = async (paymentId: string) => {
+    try {
+      // Resolve a valid shopId from first cart item via fresh product fetch
+      if (!items || items.length === 0) {
+        throw new Error('Cart is empty');
+      }
+      const firstProductId = items[0].productId;
+      const freshProduct = await apiService.getProductById(firstProductId);
+      const resolvedShopId = freshProduct?.shopId?._id || freshProduct?.shopId || '';
+      const shopId = typeof resolvedShopId === 'string' ? resolvedShopId : String(resolvedShopId || '');
+      
+      if (!shopId) {
+        throw new Error('No shop found for this order. Please refresh and try again.');
+      }
+
+      // Validate all items are still available and normalize productIds to Mongo ObjectIds
+      const products = JSON.parse(localStorage.getItem('products') || '[]');
+      const mongoIdRegex = /^[a-f\d]{24}$/i;
+      const normalizedItems: Array<{ productId: string; quantity: number }> = [];
+      for (const item of items) {
+        const product = products.find((p: any) => p.id === item.productId);
+        if (!product) {
+          throw new Error(`Product ${item.productId} is no longer available. Please refresh your cart.`);
+        }
+        if (product.status !== 'available') {
+          throw new Error(`Product "${product.productName}" is currently unavailable.`);
+        }
+        if (product.stockQuantity < item.quantity) {
+          throw new Error(`Only ${product.stockQuantity} items available for "${product.productName}". Please update your cart.`);
+        }
+
+        // Ensure productId is a valid Mongo ObjectId string
+        const candidateId = product.id || item.productId;
+        if (!mongoIdRegex.test(candidateId)) {
+          throw new Error(`Invalid product reference for "${product.productName}". Please remove and re-add the item.`);
+        }
+        normalizedItems.push({ productId: candidateId, quantity: item.quantity });
+      }
+      
+      const order = await apiService.createOrder({
+        shopId,
+        shippingAddress: user?.address || '',
+        items: normalizedItems,
+        paymentMethod: paymentMethod === 'cod' ? 'cash_on_delivery' : 'credit_card',
+        notes: `paymentId=${paymentId}`,
+      });
+
+      if (!order) {
+        throw new Error('Order creation failed. Please try again.');
+      }
+
+      clearCart();
+      setOrderId(order._id || '');
+      setOrderPlaced(true);
+    } catch (e: any) {
+      console.error('Create order failed', e);
+      const apiErrors = e?.response?.data?.errors;
+      if (Array.isArray(apiErrors) && apiErrors.length) {
+        const first = apiErrors[0];
+        alert(`❌ ${e?.response?.data?.message || 'Validation failed'}: ${first?.msg || first?.message || first}`);
+      } else {
+        const errorMessage = e?.response?.data?.message || e?.message || 'Order creation failed. Please try again.';
+        alert(`❌ ${errorMessage}`);
+      }
+    } finally {
+      setIsProcessing(false);
+    }
   };
 
   if (!user || user.role !== 'customer') {
@@ -136,23 +179,7 @@ const PaymentPage: React.FC = () => {
     );
   }
 
-  if (items.length === 0 && !orderPlaced) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">No Items to Pay</h1>
-          <p className="text-gray-600 mb-6">Your cart is empty.</p>
-          <button
-            onClick={() => navigate('/products')}
-            className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition-colors"
-          >
-            Continue Shopping
-          </button>
-        </div>
-      </div>
-    );
-  }
-
+  // Show order success screen if an order was just placed
   if (orderPlaced) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -176,6 +203,24 @@ const PaymentPage: React.FC = () => {
               Continue Shopping
             </button>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Check if cart is empty (only when no order has been placed)
+  if ((!items || items.length === 0) && !orderPlaced) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">Empty Cart</h1>
+          <p className="text-gray-600 mb-4">Your cart is empty. Please add items before proceeding to payment.</p>
+          <button
+            onClick={() => navigate('/products')}
+            className="bg-blue-600 text-white px-6 py-2 rounded-md hover:bg-blue-700 transition-colors"
+          >
+            Browse Products
+          </button>
         </div>
       </div>
     );
@@ -306,6 +351,84 @@ const PaymentPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Mock Razorpay-like Checkout Modal */}
+      {showMockCheckout && (
+        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
+          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
+            <div className="px-6 py-4 border-b flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <img src="/logo.png" alt="SmartMart" className="h-6 w-6" />
+                <span className="font-semibold">SmartMart Payments</span>
+              </div>
+              <button onClick={() => { setShowMockCheckout(false); setIsProcessing(false); }} className="text-gray-500 hover:text-gray-700">✕</button>
+            </div>
+
+            <div className="px-6 pt-4">
+              <div className="flex space-x-2 mb-4">
+                {(['upi','card','wallet'] as const).map(t => (
+                  <button key={t} onClick={() => setMockTab(t)} className={`px-3 py-2 rounded-lg text-sm font-medium ${mockTab===t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{t.toUpperCase()}</button>
+                ))}
+              </div>
+
+              {mockTab === 'upi' && (
+                <div className="space-y-3">
+                  <label className="block text-sm font-medium text-gray-700">UPI ID</label>
+                  <input value={upiId} onChange={e=>setUpiId(e.target.value)} placeholder="example@upi" className="w-full px-3 py-2 border rounded-md" />
+                </div>
+              )}
+
+              {mockTab === 'card' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Cardholder Name</label>
+                    <input value={cardName} onChange={e=>setCardName(e.target.value)} className="w-full px-3 py-2 border rounded-md" />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700">Card Number</label>
+                    <input value={cardNumber} onChange={e=>setCardNumber(e.target.value)} placeholder="4111 1111 1111 1111" className="w-full px-3 py-2 border rounded-md" />
+                  </div>
+                  <div className="flex space-x-3">
+                    <div className="flex-1">
+                      <label className="block text-sm font-medium text-gray-700">Expiry (MM/YY)</label>
+                      <input value={cardExpiry} onChange={e=>setCardExpiry(e.target.value)} placeholder="12/28" className="w-full px-3 py-2 border rounded-md" />
+                    </div>
+                    <div className="w-28">
+                      <label className="block text-sm font-medium text-gray-700">CVV</label>
+                      <input value={cardCvv} onChange={e=>setCardCvv(e.target.value)} placeholder="123" className="w-full px-3 py-2 border rounded-md" />
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {mockTab === 'wallet' && (
+                <div className="space-y-2 text-sm text-gray-700">
+                  <p>Select a wallet:</p>
+                  <div className="grid grid-cols-2 gap-3">
+                    {['Paytm','PhonePe','Amazon Pay','Mobikwik'].map(w => (
+                      <button key={w} className={`px-3 py-2 rounded-lg border ${'bg-gray-50 hover:bg-gray-100'}`}>{w}</button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="py-4 space-y-2">
+                <div className="flex items-center justify-between text-sm">
+                  <span className="text-gray-600">Amount</span>
+                  <span className="font-semibold">₹{(getCartTotal()*83.0).toFixed(0)} / ${getCartTotal().toFixed(2)}</span>
+                </div>
+                <button
+                  onClick={() => { setIsProcessing(true); setTimeout(()=>{ setShowMockCheckout(false); handlePaymentSuccess('MOCK_'+Date.now()); }, 800); }}
+                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700"
+                >
+                  Pay Now
+                </button>
+                <p className="text-[11px] text-gray-500 text-center">This is a mock checkout for development only.</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

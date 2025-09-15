@@ -4,17 +4,78 @@ import { Minus, Plus, Trash2, ShoppingBag } from 'lucide-react';
 import { useCart } from '../../contexts/CartContext';
 import { useAuth } from '../../contexts/AuthContext';
 import { Product } from '../../types';
+import { apiService } from '../../services/api';
 
 const CartPage: React.FC = () => {
-  const { items, updateQuantity, removeFromCart, clearCart, getCartTotal } = useCart();
+  const { items, updateQuantity, removeFromCart, clearCart, getCartTotal, validateCartItems } = useCart();
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  const products = JSON.parse(localStorage.getItem('products') || '[]');
-  const cartProducts = items.map(item => ({
-    ...item,
-    product: products.find((p: Product) => p.id === item.productId)
-  })).filter(item => item.product);
+  const [cartProducts, setCartProducts] = React.useState<Array<{ productId: string; quantity: number; product: Product | null }>>([]);
+  const [showErrorMessage, setShowErrorMessage] = React.useState(false);
+  const [errorMessage, setErrorMessage] = React.useState('');
+
+  React.useEffect(() => {
+    const load = async () => {
+      const productsCache: Product[] = JSON.parse(localStorage.getItem('products') || '[]');
+      const results: Array<{ productId: string; quantity: number; product: Product | null }> = [];
+      const missing: string[] = [];
+      for (const item of items) {
+        const p = productsCache.find((pp: Product) => pp.id === item.productId);
+        if (p) {
+          results.push({ productId: item.productId, quantity: item.quantity, product: p });
+        } else {
+          missing.push(item.productId);
+        }
+      }
+      if (missing.length > 0) {
+        const fetched: Product[] = [];
+        await Promise.all(missing.map(async (id) => {
+          try {
+            const prod = await apiService.getProductById(id);
+            if (prod) {
+              const mapped: Product = {
+                id: prod._id,
+                shopId: String(prod.shopId),
+                categoryId: String(prod.categoryId),
+                productName: prod.productName,
+                description: prod.description,
+                price: prod.price,
+                stockQuantity: prod.stockQuantity,
+                imageUrls: prod.imageUrls ?? [],
+                status: prod.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+                createdAt: prod.createdAt,
+                updatedAt: prod.updatedAt,
+              };
+              fetched.push(mapped);
+              results.push({ productId: id, quantity: items.find(i => i.productId === id)!.quantity, product: mapped });
+            } else {
+              results.push({ productId: id, quantity: items.find(i => i.productId === id)!.quantity, product: null });
+            }
+          } catch {
+            results.push({ productId: id, quantity: items.find(i => i.productId === id)!.quantity, product: null });
+          }
+        }));
+        if (fetched.length > 0) {
+          localStorage.setItem('products', JSON.stringify([...productsCache, ...fetched]));
+        }
+      }
+      setCartProducts(results);
+    };
+    load();
+  }, [items]);
+
+  // Separate useEffect for cart validation (only run once on mount)
+  React.useEffect(() => {
+    const validateCart = async () => {
+      try {
+        await validateCartItems();
+      } catch (error) {
+        console.error('Error validating cart:', error);
+      }
+    };
+    validateCart();
+  }, []); // Empty dependency array - only run once on mount
 
   const handleCheckout = () => {
     if (items.length === 0) return;
@@ -41,6 +102,22 @@ const CartPage: React.FC = () => {
           <p className="text-gray-600">Review your items before checkout</p>
         </div>
 
+        {/* Error Notification */}
+        {showErrorMessage && (
+          <div className="mb-6 bg-red-50 border border-red-200 rounded-md p-4">
+            <div className="flex items-center">
+              <div className="flex-shrink-0">
+                <svg className="h-5 w-5 text-red-400" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+              </div>
+              <div className="ml-3">
+                <p className="text-sm text-red-800">{errorMessage}</p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {items.length === 0 ? (
           <div className="text-center py-12">
             <ShoppingBag className="h-12 w-12 text-gray-400 mx-auto mb-4" />
@@ -64,23 +141,47 @@ const CartPage: React.FC = () => {
                   {cartProducts.map((item) => (
                     <div key={item.productId} className="p-6 flex items-center space-x-4">
                       <div className="flex-shrink-0">
-                        <img
-                          src={item.product.imageUrls[0]}
-                          alt={item.product.productName}
-                          className="w-16 h-16 object-cover rounded-lg"
-                        />
+                        {item.product ? (
+                          <img
+                            src={item.product.imageUrls[0]}
+                            alt={item.product.productName}
+                            className="w-16 h-16 object-cover rounded-lg"
+                            loading="lazy"
+                            decoding="async"
+                          />
+                        ) : (
+                          <div className="w-16 h-16 rounded-lg bg-gray-100 animate-pulse" />
+                        )}
                       </div>
                       <div className="flex-1 min-w-0">
                         <h3 className="text-sm font-medium text-gray-900">
-                          {item.product.productName}
+                          {item.product ? item.product.productName : 'Loading...'}
                         </h3>
                         <p className="text-sm text-gray-500 mt-1">
-                          ${item.product.price.toFixed(2)} each
+                          {item.product ? `$${item.product.price.toFixed(2)} each` : ''}
                         </p>
+                        {item.product && item.quantity > item.product.stockQuantity && (
+                          <p className="text-sm text-red-600 mt-1 font-medium">
+                            ⚠️ Only {item.product.stockQuantity} available in stock
+                          </p>
+                        )}
+                        {item.product && item.product.status === 'out_of_stock' && (
+                          <p className="text-sm text-red-600 mt-1 font-medium">
+                            ❌ Out of stock
+                          </p>
+                        )}
                       </div>
                       <div className="flex items-center space-x-2">
                         <button
-                          onClick={() => updateQuantity(item.productId, item.quantity - 1)}
+                          onClick={async () => {
+                            try {
+                              await updateQuantity(item.productId, item.quantity - 1);
+                            } catch (error) {
+                              setErrorMessage(error instanceof Error ? error.message : 'Failed to update quantity');
+                              setShowErrorMessage(true);
+                              setTimeout(() => setShowErrorMessage(false), 3000);
+                            }
+                          }}
                           className="p-1 text-gray-400 hover:text-gray-600"
                         >
                           <Minus className="h-4 w-4" />
@@ -89,14 +190,22 @@ const CartPage: React.FC = () => {
                           {item.quantity}
                         </span>
                         <button
-                          onClick={() => updateQuantity(item.productId, item.quantity + 1)}
+                          onClick={async () => {
+                            try {
+                              await updateQuantity(item.productId, item.quantity + 1);
+                            } catch (error) {
+                              setErrorMessage(error instanceof Error ? error.message : 'Failed to update quantity');
+                              setShowErrorMessage(true);
+                              setTimeout(() => setShowErrorMessage(false), 3000);
+                            }
+                          }}
                           className="p-1 text-gray-400 hover:text-gray-600"
                         >
                           <Plus className="h-4 w-4" />
                         </button>
                       </div>
                       <div className="text-sm font-medium text-gray-900">
-                        ${(item.product.price * item.quantity).toFixed(2)}
+                        {item.product ? `$${(item.product.price * item.quantity).toFixed(2)}` : '--'}
                       </div>
                       <button
                         onClick={() => removeFromCart(item.productId)}

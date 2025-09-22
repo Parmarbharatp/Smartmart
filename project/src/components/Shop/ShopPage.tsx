@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { MapPin, Phone, Mail, Star, Package } from 'lucide-react';
+import { MapPin, Phone, Mail, Star, Package, Clock, Truck, Navigation } from 'lucide-react';
 import { Shop, Product, Review } from '../../types';
 import ProductCard from '../Products/ProductCard';
+import { apiService } from '../../services/api';
 
 const ShopPage: React.FC = () => {
   const { shopId } = useParams<{ shopId: string }>();
@@ -10,27 +11,40 @@ const ShopPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (shopId) {
-      const shops = JSON.parse(localStorage.getItem('shops') || '[]');
-      const foundShop = shops.find((s: Shop) => s.id === shopId);
-      setShop(foundShop || null);
+    const fetchShopData = async () => {
+      if (!shopId) return;
+      
+      try {
+        setLoading(true);
+        setError(null);
 
-      if (foundShop) {
-        const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-        const shopProducts = allProducts.filter((p: Product) => p.shopId === shopId);
-        setProducts(shopProducts);
+        // Fetch shop details with products in one call
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/shops/${shopId}/details`);
+        if (!response.ok) {
+          throw new Error('Shop not found');
+        }
+        const data = await response.json();
+        // Support both { data: { shop, products } } and flat shapes
+        const shopData = data?.data?.shop ?? data?.shop ?? null;
+        const productData = data?.data?.products ?? data?.products ?? [];
+        setShop(shopData);
+        setProducts(Array.isArray(productData) ? productData : []);
 
-        // Get reviews for shop products
-        const allReviews = JSON.parse(localStorage.getItem('reviews') || '[]');
-        const shopReviews = allReviews.filter((r: Review) => 
-          shopProducts.some(p => p.id === r.productId)
-        );
-        setReviews(shopReviews);
+        // For now, we'll use empty reviews array since we don't have a reviews API yet
+        setReviews([]);
+
+      } catch (err) {
+        console.error('Error fetching shop data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load shop data');
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
-    }
+    };
+
+    fetchShopData();
   }, [shopId]);
 
   if (loading) {
@@ -44,12 +58,16 @@ const ShopPage: React.FC = () => {
     );
   }
 
-  if (!shop) {
+  if (error || !shop) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-900 mb-4">Shop Not Found</h1>
-          <p className="text-gray-600 mb-6">The shop you're looking for doesn't exist.</p>
+          <h1 className="text-2xl font-bold text-gray-900 mb-4">
+            {error ? 'Error Loading Shop' : 'Shop Not Found'}
+          </h1>
+          <p className="text-gray-600 mb-6">
+            {error || "The shop you're looking for doesn't exist."}
+          </p>
           <Link to="/shops" className="bg-blue-600 text-white px-6 py-3 rounded-md hover:bg-blue-700 transition-colors">
             Browse All Shops
           </Link>
@@ -71,9 +89,10 @@ const ShopPage: React.FC = () => {
             <div className="lg:col-span-1">
               <div className="aspect-square bg-gray-200 rounded-lg overflow-hidden">
                 <img
-                  src={shop.imageUrl}
+                  src={shop.imageUrl || 'https://via.placeholder.com/600x600?text=Shop'}
                   alt={shop.shopName}
                   className="w-full h-full object-cover"
+                  onError={(e) => { (e.currentTarget as HTMLImageElement).src = 'https://via.placeholder.com/600x600?text=Shop'; }}
                 />
               </div>
             </div>
@@ -115,22 +134,98 @@ const ShopPage: React.FC = () => {
               
               <div className="space-y-3">
                 <div className="flex items-center text-gray-600">
-                  <MapPin className="h-5 w-5 mr-3" />
-                  <span>{shop.address}</span>
+                  <MapPin className="h-5 w-5 mr-3 text-blue-600" />
+                  <span className="font-medium">{shop.address}</span>
                 </div>
                 <div className="flex items-center text-gray-600">
-                  <Mail className="h-5 w-5 mr-3" />
-                  <span>{shop.contactInfo}</span>
+                  <Phone className="h-5 w-5 mr-3 text-green-600" />
+                  <span className="font-medium">{shop.contactInfo}</span>
                 </div>
                 <div className="flex items-center text-gray-600">
-                  <Package className="h-5 w-5 mr-3" />
-                  <span>{products.length} products available</span>
+                  <Package className="h-5 w-5 mr-3 text-purple-600" />
+                  <span className="font-medium">{products.length} products available</span>
                 </div>
+                {shop.openingHours && (
+                  <div className="flex items-center text-gray-600">
+                    <Clock className="h-5 w-5 mr-3 text-orange-600" />
+                    <span className="font-medium">{shop.openingHours}</span>
+                  </div>
+                )}
+                {shop.deliveryRadius && (
+                  <div className="flex items-center text-gray-600">
+                    <Truck className="h-5 w-5 mr-3 text-indigo-600" />
+                    <span className="font-medium">Delivery within {shop.deliveryRadius} km</span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Shop Location */}
+      {shop.location && (
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="bg-white rounded-lg shadow-lg p-6">
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold text-gray-900 flex items-center">
+                <MapPin className="mr-3 h-6 w-6 text-blue-600" />
+                Shop Location
+              </h2>
+            </div>
+            
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Full Address</label>
+                  <p className="text-gray-900">{shop.location.formattedAddress || shop.address}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">City</label>
+                    <p className="text-gray-900">{shop.location.city || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">State</label>
+                    <p className="text-gray-900">{shop.location.state || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Country</label>
+                    <p className="text-gray-900">{shop.location.country || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium text-gray-600">Postal Code</label>
+                    <p className="text-gray-900">{shop.location.postalCode || 'N/A'}</p>
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-gray-600">Coordinates</label>
+                  <p className="text-gray-900 font-mono text-sm">
+                    {typeof shop.location.coordinates?.lat === 'number' && typeof shop.location.coordinates?.lng === 'number'
+                      ? `${shop.location.coordinates.lat.toFixed(6)}, ${shop.location.coordinates.lng.toFixed(6)}`
+                      : 'N/A'}
+                  </p>
+                </div>
+              </div>
+              
+              <div className="bg-gray-100 rounded-lg p-6 flex items-center justify-center">
+                <div className="text-center">
+                  <Navigation className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                  <p className="text-gray-500 mb-2">Interactive Map</p>
+                  <p className="text-sm text-gray-400">
+                    Map view would be displayed here
+                  </p>
+                  <p className="text-xs text-gray-400 mt-2">
+                    {typeof shop.location.coordinates?.lat === 'number' && typeof shop.location.coordinates?.lng === 'number'
+                      ? `${shop.location.coordinates.lat.toFixed(4)}, ${shop.location.coordinates.lng.toFixed(4)}`
+                      : 'N/A'}
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Shop Products */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { Search, MapPin, Star, Store, Grid, List, Filter } from 'lucide-react';
 import { Shop } from '../../types';
 import { useTheme } from '../../contexts/ThemeContext';
@@ -17,7 +18,7 @@ const ShopsPage: React.FC = () => {
   const [filters, setFilters] = useState<any>({});
 
   useEffect(() => {
-    (async () => {
+    const fetchShops = async () => {
       try {
         // Load all shops; we'll filter client-side to show approved + own
         const shopsApi = await apiService.getShops({ limit: 200 });
@@ -30,6 +31,10 @@ const ShopsPage: React.FC = () => {
           contactInfo: s.contactInfo,
           status: s.status,
           imageUrl: s.imageUrl,
+          openingHours: s.openingHours,
+          deliveryRadius: s.deliveryRadius,
+          rating: s.rating,
+          totalReviews: s.totalReviews,
           createdAt: s.createdAt,
           updatedAt: s.updatedAt,
         }));
@@ -39,7 +44,9 @@ const ShopsPage: React.FC = () => {
       } catch (e) {
         console.error('Failed to load shops', e);
       }
-    })();
+    };
+
+    fetchShops();
   }, [user]);
 
   useEffect(() => {
@@ -210,16 +217,29 @@ const ShopsPage: React.FC = () => {
 
 const ShopCard: React.FC<{ shop: Shop; viewMode: 'grid' | 'list' }> = ({ shop, viewMode }) => {
   const { isDarkMode } = useTheme();
-  const products = JSON.parse(localStorage.getItem('products') || '[]');
-  const shopProducts = products.filter((p: any) => p.shopId === shop.id);
-  const reviews = JSON.parse(localStorage.getItem('reviews') || '[]');
-  const shopReviews = reviews.filter((r: any) => 
-    shopProducts.some((p: any) => p.id === r.productId)
-  );
-  
-  const avgRating = shopReviews.length > 0 
-    ? shopReviews.reduce((sum: number, review: any) => sum + review.rating, 0) / shopReviews.length 
-    : 0;
+  const [productCount, setProductCount] = useState(0);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchProductCount = async () => {
+      try {
+        const response = await fetch(`${import.meta.env.VITE_API_URL || 'http://localhost:5000/api'}/products/shop/${shop.id}?limit=1`);
+        if (response.ok) {
+          const data = await response.json();
+          setProductCount(data.data?.pagination?.total || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching product count:', error);
+        setProductCount(0);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProductCount();
+  }, [shop.id]);
+
+  const avgRating = shop.rating || 0;
 
   if (viewMode === 'list') {
     return (
@@ -270,13 +290,16 @@ const ShopCard: React.FC<{ shop: Shop; viewMode: 'grid' | 'list' }> = ({ shop, v
                   </span>
                 </div>
                 <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-                  {shopProducts.length} products
+                  {loading ? '...' : `${productCount} products`}
                 </span>
               </div>
               
-              <button className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 font-medium">
+              <Link 
+                to={`/shops/${shop.id}`}
+                className="px-6 py-2 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 font-medium inline-block"
+              >
                 Visit Shop
-              </button>
+              </Link>
             </div>
           </div>
         </div>
@@ -331,13 +354,16 @@ const ShopCard: React.FC<{ shop: Shop; viewMode: 'grid' | 'list' }> = ({ shop, v
             </span>
           </div>
           <span className={`text-sm ${isDarkMode ? 'text-gray-400' : 'text-gray-500'}`}>
-            {shopProducts.length} products
+            {loading ? '...' : `${productCount} products`}
           </span>
         </div>
         
-        <button className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105">
+        <Link 
+          to={`/shops/${shop.id}`}
+          className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 transition-all duration-300 font-semibold shadow-lg hover:shadow-xl transform hover:scale-105 inline-block text-center"
+        >
           Visit Shop
-        </button>
+        </Link>
       </div>
     </div>
   );

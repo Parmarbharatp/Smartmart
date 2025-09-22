@@ -21,6 +21,19 @@ export interface Shop {
   status: 'pending' | 'approved' | 'rejected';
   imageUrl?: string;
   imageFile?: File;
+  openingHours?: string;
+  deliveryRadius?: number;
+  location?: {
+    coordinates?: { lat: number; lng: number };
+    address?: string;
+    city?: string;
+    state?: string;
+    country?: string;
+    postalCode?: string;
+    formattedAddress?: string;
+    placeId?: string;
+    lastUpdated?: string;
+  };
   createdAt: string;
   updatedAt: string;
 }

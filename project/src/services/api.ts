@@ -32,8 +32,36 @@ interface User {
   phoneNumber?: string;
   address?: string;
   profilePicture?: string;
+  location?: {
+    coordinates: {
+      lat: number;
+      lng: number;
+    };
+    address: string;
+    city: string;
+    state: string;
+    country: string;
+    postalCode?: string;
+    formattedAddress: string;
+    placeId?: string;
+    lastUpdated: string;
+  };
   createdAt: string;
   updatedAt: string;
+}
+
+interface LocationData {
+  coordinates: {
+    lat: number;
+    lng: number;
+  };
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode?: string;
+  formattedAddress: string;
+  placeId?: string;
 }
 
 // API Service Class
@@ -383,10 +411,55 @@ class ApiService {
     });
     return res.data;
   }
+
+  // ============ Location ============
+  async updateUserLocation(locationData: LocationData): Promise<{ location: any }> {
+    const response = await this.request<{ location: any }>('/auth/update-location', {
+      method: 'PUT',
+      body: JSON.stringify(locationData),
+    });
+    return response.data!;
+  }
+
+  async getUserLocation(): Promise<{ location: any }> {
+    const response = await this.request<{ location: any }>('/auth/location');
+    return response.data!;
+  }
+
+  async updateShopLocation(shopId: string, locationData: LocationData): Promise<{ location: any }> {
+    const response = await this.request<{ location: any }>(`/shops/${shopId}/update-location`, {
+      method: 'PUT',
+      body: JSON.stringify(locationData),
+    });
+    return response.data!;
+  }
+
+  async getShopLocation(shopId: string): Promise<{ shopName: string; location: any }> {
+    const response = await this.request<{ shopName: string; location: any }>(`/shops/${shopId}/location`);
+    return response.data!;
+  }
+
+  // ============ Location Tracking Preferences ============
+  async updateLocationTrackingPreferences(preferences: {
+    enabled: boolean;
+    updateInterval: number;
+    highAccuracy: boolean;
+  }): Promise<{ locationTracking: any }> {
+    const response = await this.request<{ locationTracking: any }>('/auth/location-tracking-preferences', {
+      method: 'PUT',
+      body: JSON.stringify(preferences),
+    });
+    return response.data!;
+  }
+
+  async getLocationTrackingPreferences(): Promise<{ locationTracking: any }> {
+    const response = await this.request<{ locationTracking: any }>('/auth/location-tracking-preferences');
+    return response.data!;
+  }
 }
 
 // Create and export singleton instance
 export const apiService = new ApiService();
 
 // Export types for use in components
-export type { ApiResponse, AuthResponse, User };
+export type { ApiResponse, AuthResponse, User, LocationData };

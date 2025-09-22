@@ -4,16 +4,58 @@ import {
   Search, Star, Store, Package, Users, ShoppingBag, TrendingUp, Shield, Truck, Award, 
   ArrowRight, Play, Zap, Heart, Eye, Filter, Grid, ChevronRight, MapPin, Clock,
   Smartphone, Laptop, Home as HomeIcon, Shirt, Gift, Coffee, Camera, Headphones,
-  CheckCircle, Globe, CreditCard, RefreshCw, MessageCircle, ThumbsUp
+  CheckCircle, Globe, CreditCard, RefreshCw, MessageCircle, ThumbsUp, Navigation
 } from 'lucide-react';
 import { Product, Shop } from '../../types';
 import { apiService } from '../../services/api';
+// import { useLocationContext } from '../../contexts/LocationContext';
 
 const HomePage: React.FC = () => {
   const [featuredProducts, setFeaturedProducts] = useState<Product[]>([]);
   const [featuredShops, setFeaturedShops] = useState<Shop[]>([]);
   const [currentSlide, setCurrentSlide] = useState(0);
   const [isVisible, setIsVisible] = useState(false);
+  const [locationMessage, setLocationMessage] = useState('');
+  
+  // const { 
+  //   currentLocationDetails, 
+  //   locateMeWithDetails, 
+  //   isMapsReady 
+  // } = useLocationContext();
+  
+  // Temporary mock values
+  const currentLocationDetails = null;
+  const locateMeWithDetails = async () => null;
+  const isMapsReady = true;
+
+  const handleLocationTracking = async () => {
+    try {
+      setLocationMessage('Getting your location...');
+      const locationDetails = await locateMeWithDetails();
+      
+      if (locationDetails) {
+        // Save location to user profile
+        const locationData = {
+          coordinates: locationDetails.coordinates,
+          address: locationDetails.address,
+          city: locationDetails.city,
+          state: locationDetails.state,
+          country: locationDetails.country,
+          postalCode: locationDetails.postalCode,
+          formattedAddress: locationDetails.formattedAddress,
+          placeId: locationDetails.placeId
+        };
+
+        await apiService.updateUserLocation(locationData);
+        setLocationMessage(`Location saved: ${locationDetails.city}, ${locationDetails.state}`);
+      } else {
+        setLocationMessage('Failed to get location details');
+      }
+    } catch (error) {
+      console.error('Location tracking error:', error);
+      setLocationMessage('Error getting location. Please check permissions.');
+    }
+  };
   
   useEffect(() => {
     (async () => {
@@ -209,7 +251,31 @@ const HomePage: React.FC = () => {
                   <Store className="mr-3 h-6 w-6 group-hover:scale-110 transition-transform" />
                   Become a Seller
                 </Link>
+                <button
+                  onClick={handleLocationTracking}
+                  className="group glass text-white px-8 py-4 rounded-2xl font-bold hover:bg-white/20 transition-all duration-300 inline-flex items-center justify-center border border-white/30"
+                >
+                  <Navigation className="mr-3 h-6 w-6 group-hover:scale-110 transition-transform" />
+                  Track Location
+                </button>
               </div>
+
+              {/* Location Status */}
+              {locationMessage && (
+                <div className="mt-4 p-4 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
+                  <p className="text-white text-sm">{locationMessage}</p>
+                </div>
+              )}
+
+              {/* Current Location Display */}
+              {currentLocationDetails && (
+                <div className="mt-4 p-4 bg-white/10 backdrop-blur-sm rounded-lg border border-white/20">
+                  <div className="flex items-center text-white text-sm">
+                    <MapPin className="mr-2 h-4 w-4" />
+                    <span>{currentLocationDetails.city}, {currentLocationDetails.state}</span>
+                  </div>
+                </div>
+              )}
 
               {/* Stats */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 pt-8">

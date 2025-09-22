@@ -24,6 +24,51 @@ const shopSchema = new mongoose.Schema({
     trim: true,
     maxlength: [200, 'Address cannot be more than 200 characters']
   },
+  // Location data
+  location: {
+    coordinates: {
+      lat: {
+        type: Number,
+        default: null
+      },
+      lng: {
+        type: Number,
+        default: null
+      }
+    },
+    address: {
+      type: String,
+      default: ''
+    },
+    city: {
+      type: String,
+      default: ''
+    },
+    state: {
+      type: String,
+      default: ''
+    },
+    country: {
+      type: String,
+      default: ''
+    },
+    postalCode: {
+      type: String,
+      default: ''
+    },
+    formattedAddress: {
+      type: String,
+      default: ''
+    },
+    placeId: {
+      type: String,
+      default: ''
+    },
+    lastUpdated: {
+      type: Date,
+      default: null
+    }
+  },
   contactInfo: {
     type: String,
     required: [true, 'Contact information is required'],

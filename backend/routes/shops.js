@@ -1,4 +1,5 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { body, validationResult } from 'express-validator';
 import { Shop } from '../models/Shop.js';
 import { User } from '../models/User.js';
@@ -107,6 +108,60 @@ router.get('/:id', async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching shop'
+    });
+  }
+});
+
+// @route   GET /api/shops/:id/details
+// @desc    Get shop details with products and full information
+// @access  Public
+router.get('/:id/details', async (req, res) => {
+  try {
+    const { page = 1, limit = 20 } = req.query;
+    
+    const shop = await Shop.findById(req.params.id)
+      .populate('ownerId', 'name email phoneNumber');
+    
+    if (!shop) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Shop not found'
+      });
+    }
+    
+    // Get shop products
+    const Product = mongoose.model('Product');
+    const products = await Product.find({ shopId: req.params.id, isActive: true })
+      .populate('categoryId', 'name')
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+    
+    const totalProducts = await Product.countDocuments({ shopId: req.params.id, isActive: true });
+    
+    // Get shop statistics
+    const stats = await shop.getStats();
+    
+    res.status(200).json({
+      status: 'success',
+      data: {
+        shop: {
+          ...shop.toObject(),
+          stats
+        },
+        products,
+        pagination: {
+          current: parseInt(page),
+          pages: Math.ceil(totalProducts / limit),
+          total: totalProducts
+        }
+      }
+    });
+  } catch (error) {
+    console.error('Get shop details error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching shop details'
     });
   }
 });
@@ -351,6 +406,121 @@ router.get('/owner/my-shop', verifyToken, async (req, res) => {
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while fetching shop'
+    });
+  }
+});
+
+// @route   PUT /api/shops/:id/update-location
+// @desc    Update shop location with coordinates and address details
+// @access  Private (Shop Owner or Admin)
+router.put('/:id/update-location', verifyToken, [
+  body('coordinates.lat').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
+  body('coordinates.lng').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
+  body('address').notEmpty().withMessage('Address is required'),
+  body('city').notEmpty().withMessage('City is required'),
+  body('state').notEmpty().withMessage('State is required'),
+  body('country').notEmpty().withMessage('Country is required'),
+  body('formattedAddress').notEmpty().withMessage('Formatted address is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const shop = await Shop.findById(req.params.id);
+    if (!shop) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Shop not found'
+      });
+    }
+
+    // Check if user owns the shop or is admin
+    if (shop.ownerId.toString() !== req.user.id && req.user.role !== 'admin') {
+      return res.status(403).json({
+        status: 'error',
+        message: 'You can only update your own shop location'
+      });
+    }
+
+    const {
+      coordinates,
+      address,
+      city,
+      state,
+      country,
+      postalCode,
+      formattedAddress,
+      placeId
+    } = req.body;
+
+    // Update location data
+    shop.location = {
+      coordinates: {
+        lat: coordinates.lat,
+        lng: coordinates.lng
+      },
+      address: address || '',
+      city: city || '',
+      state: state || '',
+      country: country || '',
+      postalCode: postalCode || '',
+      formattedAddress: formattedAddress || '',
+      placeId: placeId || '',
+      lastUpdated: new Date()
+    };
+
+    await shop.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Shop location updated successfully',
+      data: {
+        location: shop.location
+      }
+    });
+
+  } catch (error) {
+    console.error('Update shop location error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while updating shop location'
+    });
+  }
+});
+
+// @route   GET /api/shops/:id/location
+// @desc    Get shop's location
+// @access  Public
+router.get('/:id/location', async (req, res) => {
+  try {
+    const shop = await Shop.findById(req.params.id).select('location shopName');
+    
+    if (!shop) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'Shop not found'
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        shopName: shop.shopName,
+        location: shop.location
+      }
+    });
+
+  } catch (error) {
+    console.error('Get shop location error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching shop location'
     });
   }
 });

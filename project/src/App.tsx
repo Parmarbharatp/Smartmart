@@ -4,6 +4,7 @@ import { GoogleOAuthProvider } from '@react-oauth/google';
 import { AuthProvider } from './contexts/AuthContext';
 import { CartProvider } from './contexts/CartContext';
 import { ThemeProvider } from './contexts/ThemeContext';
+import { LocationTrackingProvider } from './contexts/LocationTrackingContext';
 import { initializeMockData } from './services/mockData';
 import Header from './components/Layout/Header';
 import Footer from './components/Layout/Footer';
@@ -22,6 +23,10 @@ import OrdersPage from './components/Orders/OrdersPage';
 import AdminDashboard from './components/Admin/AdminDashboard';
 import ShopDashboard from './components/Shop/ShopDashboard';
 import DeliveryDashboard from './components/Delivery/DeliveryDashboard';
+import ProfilePage from './components/Profile/ProfilePage';
+import SimpleProfilePage from './components/Profile/SimpleProfilePage';
+import ProfileTest from './components/Test/ProfileTest';
+import ErrorBoundary from './components/ErrorBoundary';
 
 function App() {
   useEffect(() => {
@@ -39,6 +44,43 @@ function App() {
         <ThemeProvider>
           <AuthProvider>
             <CartProvider>
+              <LocationTrackingProvider>
+                <Router>
+                  <div className="min-h-screen transition-colors duration-300">
+                    <Header />
+                    <main>
+                      <Routes>
+                        <Route path="/" element={<HomePage />} />
+                        <Route path="/login" element={<LoginForm />} />
+                        <Route path="/forgot-password" element={<ForgotPassword />} />
+                        <Route path="/reset-password" element={<ResetPassword />} />
+                        <Route path="/register" element={<RegisterForm />} />
+                        <Route path="/products" element={<ProductsPage />} />
+                        <Route path="/products/:productId" element={<ProductDetailPage />} />
+                        <Route path="/shops" element={<ShopsPage />} />
+                        <Route path="/shops/:shopId" element={<ShopPage />} />
+                        <Route path="/cart" element={<CartPage />} />
+                        <Route path="/payment" element={<PaymentPage />} />
+                        <Route path="/orders" element={<OrdersPage />} />
+                        <Route path="/admin" element={<AdminDashboard />} />
+                        <Route path="/shop-dashboard" element={<ShopDashboard />} />
+                        <Route path="/delivery-dashboard" element={<DeliveryDashboard />} />
+                        <Route path="/profile" element={<ErrorBoundary><SimpleProfilePage /></ErrorBoundary>} />
+                      </Routes>
+                    </main>
+                    <Footer />
+                  </div>
+                </Router>
+              </LocationTrackingProvider>
+            </CartProvider>
+          </AuthProvider>
+        </ThemeProvider>
+      </GoogleOAuthProvider>
+    ) : (
+      <ThemeProvider>
+        <AuthProvider>
+          <CartProvider>
+            <LocationTrackingProvider>
               <Router>
                 <div className="min-h-screen transition-colors duration-300">
                   <Header />
@@ -59,44 +101,13 @@ function App() {
                       <Route path="/admin" element={<AdminDashboard />} />
                       <Route path="/shop-dashboard" element={<ShopDashboard />} />
                       <Route path="/delivery-dashboard" element={<DeliveryDashboard />} />
+                      <Route path="/profile" element={<ErrorBoundary><SimpleProfilePage /></ErrorBoundary>} />
                     </Routes>
                   </main>
                   <Footer />
                 </div>
               </Router>
-            </CartProvider>
-          </AuthProvider>
-        </ThemeProvider>
-      </GoogleOAuthProvider>
-    ) : (
-      <ThemeProvider>
-        <AuthProvider>
-          <CartProvider>
-            <Router>
-              <div className="min-h-screen transition-colors duration-300">
-                <Header />
-                <main>
-                  <Routes>
-                    <Route path="/" element={<HomePage />} />
-                    <Route path="/login" element={<LoginForm />} />
-                    <Route path="/forgot-password" element={<ForgotPassword />} />
-                    <Route path="/reset-password" element={<ResetPassword />} />
-                    <Route path="/register" element={<RegisterForm />} />
-                    <Route path="/products" element={<ProductsPage />} />
-                    <Route path="/products/:productId" element={<ProductDetailPage />} />
-                    <Route path="/shops" element={<ShopsPage />} />
-                    <Route path="/shops/:shopId" element={<ShopPage />} />
-                    <Route path="/cart" element={<CartPage />} />
-                    <Route path="/payment" element={<PaymentPage />} />
-                    <Route path="/orders" element={<OrdersPage />} />
-                    <Route path="/admin" element={<AdminDashboard />} />
-                    <Route path="/shop-dashboard" element={<ShopDashboard />} />
-                    <Route path="/delivery-dashboard" element={<DeliveryDashboard />} />
-                  </Routes>
-                </main>
-                <Footer />
-              </div>
-            </Router>
+            </LocationTrackingProvider>
           </CartProvider>
         </AuthProvider>
       </ThemeProvider>

@@ -549,6 +549,197 @@ router.post('/check-email', async (req, res) => {
   }
 });
 
+// @route   PUT /api/auth/update-location
+// @desc    Update user location with coordinates and address details
+// @access  Private
+router.put('/update-location', verifyToken, [
+  body('coordinates.lat').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
+  body('coordinates.lng').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
+  body('address').notEmpty().withMessage('Address is required'),
+  body('city').notEmpty().withMessage('City is required'),
+  body('state').notEmpty().withMessage('State is required'),
+  body('country').notEmpty().withMessage('Country is required'),
+  body('formattedAddress').notEmpty().withMessage('Formatted address is required')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const {
+      coordinates,
+      address,
+      city,
+      state,
+      country,
+      postalCode,
+      formattedAddress,
+      placeId
+    } = req.body;
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    // Update location data
+    user.location = {
+      coordinates: {
+        lat: coordinates.lat,
+        lng: coordinates.lng
+      },
+      address: address || '',
+      city: city || '',
+      state: state || '',
+      country: country || '',
+      postalCode: postalCode || '',
+      formattedAddress: formattedAddress || '',
+      placeId: placeId || '',
+      lastUpdated: new Date()
+    };
+
+    await user.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Location updated successfully',
+      data: {
+        location: user.location
+      }
+    });
+
+  } catch (error) {
+    console.error('Update location error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while updating location'
+    });
+  }
+});
+
+// @route   GET /api/auth/location
+// @desc    Get user's current location
+// @access  Private
+router.get('/location', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('location');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        location: user.location
+      }
+    });
+
+  } catch (error) {
+    console.error('Get location error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching location'
+    });
+  }
+});
+
+// @route   PUT /api/auth/location-tracking-preferences
+// @desc    Update user's location tracking preferences
+// @access  Private
+router.put('/location-tracking-preferences', verifyToken, [
+  body('enabled').isBoolean().withMessage('Enabled must be a boolean'),
+  body('updateInterval').isNumeric().withMessage('Update interval must be a number'),
+  body('highAccuracy').isBoolean().withMessage('High accuracy must be a boolean')
+], async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const { enabled, updateInterval, highAccuracy } = req.body;
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    // Update location tracking preferences
+    user.locationTracking = {
+      enabled: enabled || false,
+      updateInterval: updateInterval || 5 * 60 * 1000, // Default to 5 minutes
+      highAccuracy: highAccuracy !== undefined ? highAccuracy : true,
+      lastTrackingUpdate: new Date()
+    };
+
+    await user.save();
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Location tracking preferences updated successfully',
+      data: {
+        locationTracking: user.locationTracking
+      }
+    });
+
+  } catch (error) {
+    console.error('Update location tracking preferences error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while updating location tracking preferences'
+    });
+  }
+});
+
+// @route   GET /api/auth/location-tracking-preferences
+// @desc    Get user's location tracking preferences
+// @access  Private
+router.get('/location-tracking-preferences', verifyToken, async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id).select('locationTracking');
+    
+    if (!user) {
+      return res.status(404).json({
+        status: 'error',
+        message: 'User not found'
+      });
+    }
+
+    res.status(200).json({
+      status: 'success',
+      data: {
+        locationTracking: user.locationTracking
+      }
+    });
+
+  } catch (error) {
+    console.error('Get location tracking preferences error:', error);
+    res.status(500).json({
+      status: 'error',
+      message: 'Internal server error while fetching location tracking preferences'
+    });
+  }
+});
+
 export default router;
 // Admin: list users
 router.get('/users', verifyToken, async (req, res) => {

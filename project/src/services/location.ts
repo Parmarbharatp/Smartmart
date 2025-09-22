@@ -1,7 +1,6 @@
 /*
-  Location/Maps setup scaffolding. This wires up a lazy Google Maps JS API loader,
-  browser geolocation utilities, and geocoding wrappers. Actual usage/integration
-  in components is intentionally not done yet.
+  Location services using OpenStreetMap Nominatim API.
+  Free alternative to Google Maps with no API key required.
 */
 
 type LatLng = { lat: number; lng: number };
@@ -13,45 +12,62 @@ type GeocodingResult = {
   raw?: unknown;
 };
 
-const provider = (import.meta.env.VITE_MAPS_PROVIDER || 'google').toLowerCase();
-const apiKey = (import.meta.env.VITE_MAPS_API_KEY || '').trim();
-const placesEnabled = String(import.meta.env.VITE_MAPS_PLACES_ENABLED || 'true') === 'true';
-const geocodingEnabled = String(import.meta.env.VITE_MAPS_GEOCODING_ENABLED || 'true') === 'true';
+type LocationDetails = {
+  coordinates: LatLng;
+  address: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode?: string;
+  formattedAddress: string;
+  placeId?: string;
+};
 
-let googleLoaderPromise: Promise<typeof google> | null = null;
+// OpenStreetMap Nominatim API configuration
+const NOMINATIM_BASE_URL = 'https://nominatim.openstreetmap.org';
+const REQUEST_DELAY = 1000; // 1 second delay between requests to respect rate limits
+let lastRequestTime = 0;
 
-function ensureGoogleLoader(): Promise<typeof google> {
-  if (provider !== 'google') {
-    return Promise.reject(new Error('Only google provider is scaffolded right now'));
+// Rate limiting helper
+async function rateLimit(): Promise<void> {
+  const now = Date.now();
+  const timeSinceLastRequest = now - lastRequestTime;
+  
+  if (timeSinceLastRequest < REQUEST_DELAY) {
+    const delay = REQUEST_DELAY - timeSinceLastRequest;
+    await new Promise(resolve => setTimeout(resolve, delay));
   }
-  if (!apiKey) {
-    return Promise.reject(new Error('VITE_MAPS_API_KEY is not set'));
-  }
-  if (googleLoaderPromise) return googleLoaderPromise;
+  
+  lastRequestTime = Date.now();
+}
 
-  googleLoaderPromise = new Promise((resolve, reject) => {
-    if (typeof window !== 'undefined' && (window as any).google && (window as any).google.maps) {
-      resolve((window as any).google);
-      return;
-    }
-    const script = document.createElement('script');
-    const libraries = placesEnabled ? 'places' : '';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=${libraries}`;
-    script.async = true;
-    script.defer = true;
-    script.onload = () => resolve((window as any).google);
-    script.onerror = () => reject(new Error('Failed to load Google Maps script'));
-    document.head.appendChild(script);
+// Make request to Nominatim API with rate limiting
+async function makeNominatimRequest(endpoint: string, params: Record<string, string>): Promise<any> {
+  await rateLimit();
+  
+  const url = new URL(`${NOMINATIM_BASE_URL}${endpoint}`);
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.append(key, value);
   });
-  return googleLoaderPromise;
+  
+  // Add required headers for Nominatim
+  const headers = {
+    'User-Agent': 'SmartMart/1.0 (Location Service)',
+    'Accept': 'application/json'
+  };
+  
+  const response = await fetch(url.toString(), { headers });
+  
+  if (!response.ok) {
+    throw new Error(`Nominatim API error: ${response.status} ${response.statusText}`);
+  }
+  
+  return response.json();
 }
 
 export async function loadMaps(): Promise<void> {
-  if (provider === 'google') {
-    await ensureGoogleLoader();
-    return;
-  }
-  throw new Error('Unsupported maps provider');
+  // No initialization needed for OpenStreetMap
+  return Promise.resolve();
 }
 
 export function getBrowserLocation(options?: PositionOptions): Promise<GeolocationPosition> {
@@ -65,39 +81,120 @@ export function getBrowserLocation(options?: PositionOptions): Promise<Geolocati
 }
 
 export async function reverseGeocode(latlng: LatLng): Promise<GeocodingResult | null> {
-  if (!geocodingEnabled) return null;
-  if (provider !== 'google') throw new Error('Unsupported maps provider');
-  await ensureGoogleLoader();
-  const geocoder = new google.maps.Geocoder();
-  const { results } = await geocoder.geocode({ location: latlng });
-  const first = results?.[0];
-  if (!first) return null;
-  const loc = first.geometry?.location;
-  return {
-    formattedAddress: first.formatted_address,
-    location: { lat: loc?.lat() ?? latlng.lat, lng: loc?.lng() ?? latlng.lng },
-    placeId: first.place_id,
-    raw: first,
-  };
+  try {
+    const results = await makeNominatimRequest('/reverse', {
+      lat: latlng.lat.toString(),
+      lon: latlng.lng.toString(),
+      format: 'json',
+      addressdetails: '1',
+      zoom: '18'
+    });
+
+    if (!results || !results.display_name) return null;
+
+    return {
+      formattedAddress: results.display_name,
+      location: { lat: parseFloat(results.lat), lng: parseFloat(results.lon) },
+      placeId: results.place_id?.toString(),
+      raw: results,
+    };
+  } catch (error) {
+    console.error('Reverse geocoding error:', error);
+    return null;
+  }
+}
+
+export async function getLocationDetails(latlng: LatLng): Promise<LocationDetails | null> {
+  try {
+    const results = await makeNominatimRequest('/reverse', {
+      lat: latlng.lat.toString(),
+      lon: latlng.lng.toString(),
+      format: 'json',
+      addressdetails: '1',
+      zoom: '18'
+    });
+
+    if (!results || !results.display_name) return null;
+
+    const address = results.address || {};
+    
+    // Extract location components from Nominatim response
+    const city = address.city || address.town || address.village || address.hamlet || '';
+    const state = address.state || address.region || address.province || '';
+    const country = address.country || '';
+    const postalCode = address.postcode || '';
+    
+    // Build address string from available components
+    let addressString = '';
+    if (address.house_number) addressString += address.house_number + ' ';
+    if (address.road) addressString += address.road;
+    if (address.house_name) addressString += (addressString ? ', ' : '') + address.house_name;
+    
+    // If no specific address found, use the display name
+    if (!addressString.trim()) {
+      addressString = results.display_name;
+    }
+    
+    return {
+      coordinates: { lat: parseFloat(results.lat), lng: parseFloat(results.lon) },
+      address: addressString.trim(),
+      city,
+      state,
+      country,
+      postalCode,
+      formattedAddress: results.display_name,
+      placeId: results.place_id?.toString(),
+    };
+  } catch (error) {
+    console.error('Get location details error:', error);
+    return null;
+  }
+}
+
+export async function getCurrentLocationWithDetails(): Promise<LocationDetails | null> {
+  try {
+    const position = await getBrowserLocation({ 
+      enableHighAccuracy: true, 
+      timeout: 10000, 
+      maximumAge: 300000 // 5 minutes cache
+    });
+    
+    const coordinates = {
+      lat: position.coords.latitude,
+      lng: position.coords.longitude
+    };
+    
+    return await getLocationDetails(coordinates);
+  } catch (error) {
+    console.error('Error getting current location with details:', error);
+    return null;
+  }
 }
 
 export async function geocodeAddress(address: string): Promise<GeocodingResult | null> {
-  if (!geocodingEnabled) return null;
-  if (provider !== 'google') throw new Error('Unsupported maps provider');
-  await ensureGoogleLoader();
-  const geocoder = new google.maps.Geocoder();
-  const { results } = await geocoder.geocode({ address });
-  const first = results?.[0];
-  if (!first) return null;
-  const loc = first.geometry?.location;
-  return {
-    formattedAddress: first.formatted_address,
-    location: { lat: loc?.lat() ?? 0, lng: loc?.lng() ?? 0 },
-    placeId: first.place_id,
-    raw: first,
-  };
+  try {
+    const results = await makeNominatimRequest('/search', {
+      q: address,
+      format: 'json',
+      addressdetails: '1',
+      limit: '1'
+    });
+
+    if (!results || !Array.isArray(results) || results.length === 0) return null;
+
+    const first = results[0];
+    return {
+      formattedAddress: first.display_name,
+      location: { lat: parseFloat(first.lat), lng: parseFloat(first.lon) },
+      placeId: first.place_id?.toString(),
+      raw: first,
+    };
+  } catch (error) {
+    console.error('Geocoding error:', error);
+    return null;
+  }
 }
 
-export type { LatLng, GeocodingResult };
+export type { LatLng, GeocodingResult, LocationDetails };
 
 

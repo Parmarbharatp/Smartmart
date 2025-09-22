@@ -376,35 +376,35 @@ const Header: React.FC = () => {
                           )}
                           
                           {user.role === 'customer' && (
-                            <>
-                              <Link 
-                                to="/orders" 
-                                className="flex items-center px-6 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                                onClick={() => setIsProfileOpen(false)}
-                              >
-                                <Package className="h-5 w-5 mr-3 text-green-500" />
-                                <div>
-                                  <div className="font-medium text-gray-900 dark:text-gray-100">My Orders</div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                                    Track your orders
-                                  </div>
+                            <Link 
+                              to="/orders" 
+                              className="flex items-center px-6 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                              onClick={() => setIsProfileOpen(false)}
+                            >
+                              <Package className="h-5 w-5 mr-3 text-green-500" />
+                              <div>
+                                <div className="font-medium text-gray-900 dark:text-gray-100">My Orders</div>
+                                <div className="text-xs text-gray-500 dark:text-gray-400">
+                                  Track your orders
                                 </div>
-                              </Link>
-                              <Link 
-                                to="/profile" 
-                                className="flex items-center px-6 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                                onClick={() => setIsProfileOpen(false)}
-                              >
-                                <User className="h-5 w-5 mr-3 text-blue-500" />
-                                <div>
-                                  <div className="font-medium text-gray-900 dark:text-gray-100">Profile Settings</div>
-                                  <div className="text-xs text-gray-500 dark:text-gray-400">
-                                    Update your profile
-                                  </div>
-                                </div>
-                              </Link>
-                            </>
+                              </div>
+                            </Link>
                           )}
+
+                          {/* Profile link for all users */}
+                          <Link 
+                            to="/profile" 
+                            className="flex items-center px-6 py-3 transition-colors hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                            onClick={() => setIsProfileOpen(false)}
+                          >
+                            <User className="h-5 w-5 mr-3 text-blue-500" />
+                            <div>
+                              <div className="font-medium text-gray-900 dark:text-gray-100">My Profile</div>
+                              <div className="text-xs text-gray-500 dark:text-gray-400">
+                                Manage your profile and location
+                              </div>
+                            </div>
+                          </Link>
                         </div>
                         
                         <div className="border-t border-gray-200 dark:border-gray-700 pt-2">

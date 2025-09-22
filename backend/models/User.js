@@ -40,6 +40,51 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
+  // Location data
+  location: {
+    coordinates: {
+      lat: {
+        type: Number,
+        default: null
+      },
+      lng: {
+        type: Number,
+        default: null
+      }
+    },
+    address: {
+      type: String,
+      default: ''
+    },
+    city: {
+      type: String,
+      default: ''
+    },
+    state: {
+      type: String,
+      default: ''
+    },
+    country: {
+      type: String,
+      default: ''
+    },
+    postalCode: {
+      type: String,
+      default: ''
+    },
+    formattedAddress: {
+      type: String,
+      default: ''
+    },
+    placeId: {
+      type: String,
+      default: ''
+    },
+    lastUpdated: {
+      type: Date,
+      default: null
+    }
+  },
   profilePicture: {
     type: String,
     default: ''
@@ -86,6 +131,25 @@ const userSchema = new mongoose.Schema({
   emailVerified: {
     type: Boolean,
     default: false
+  },
+  // Location tracking preferences
+  locationTracking: {
+    enabled: {
+      type: Boolean,
+      default: false
+    },
+    updateInterval: {
+      type: Number,
+      default: 5 * 60 * 1000 // 5 minutes in milliseconds
+    },
+    highAccuracy: {
+      type: Boolean,
+      default: true
+    },
+    lastTrackingUpdate: {
+      type: Date,
+      default: null
+    }
   },
   // Timestamps
   createdAt: {

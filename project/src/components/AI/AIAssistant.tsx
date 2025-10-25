@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
-import { Wand2, Image, Loader2 } from 'lucide-react';
+import { Wand2, Image, Loader2, Sparkles } from 'lucide-react';
+import { apiService } from '../../services/api';
 
 interface AIAssistantProps {
   onDescriptionGenerated?: (description: string) => void;
@@ -7,6 +8,7 @@ interface AIAssistantProps {
   productName?: string;
   features?: string[];
   currentDescription?: string;
+  category?: string;
 }
 
 const AIAssistant: React.FC<AIAssistantProps> = ({
@@ -14,30 +16,38 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
   onImageAnalyzed,
   productName = '',
   features = [],
-  currentDescription = ''
+  currentDescription = '',
+  category = ''
 }) => {
   const [isGenerating, setIsGenerating] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const generateDescription = async () => {
-    if (!productName) return;
+    if (!productName.trim()) {
+      setError('Please enter a product name first');
+      return;
+    }
 
     setIsGenerating(true);
+    setError(null);
+    
     try {
-      const prompt = `Write a compelling and professional product description for a ${productName}${features.length > 0 ? ` with features: ${features.join(', ')}` : ''}. Make it engaging for potential customers, highlighting key benefits and value proposition. Keep it concise but informative.`;
+      const result = await apiService.generateProductDescription({
+        productName: productName.trim(),
+        category,
+        features,
+        currentDescription
+      });
 
-      const chatHistory = [{ role: "user", parts: [{ text: prompt }] }];
-      const payload = { contents: chatHistory };
-
-      // In a real implementation, you would use your actual Gemini API key
-      // For demo purposes, we'll simulate the response
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      onDescriptionGenerated?.(result.description);
       
-      const generatedDescription = `Experience the perfect blend of quality and innovation with our ${productName}. ${features.length > 0 ? `Featuring ${features.join(', ')}, this product ` : 'This exceptional product '}delivers outstanding performance and reliability. Designed with attention to detail and built to last, it's the ideal choice for discerning customers who value both functionality and style. Whether you're a professional or enthusiast, this product will exceed your expectations and enhance your daily experience.`;
-
-      onDescriptionGenerated?.(generatedDescription);
+      if (result.fallback) {
+        setError('AI service is currently unavailable. Generated a fallback description.');
+      }
     } catch (error) {
       console.error('Error generating description:', error);
+      setError('Failed to generate description. Please try again.');
     } finally {
       setIsGenerating(false);
     }
@@ -47,26 +57,21 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
     if (!imageFile) return;
 
     setIsAnalyzing(true);
+    setError(null);
+    
     try {
-      // Convert image to base64
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader();
-        reader.onloadend = () => resolve(reader.result as string);
-        reader.readAsDataURL(imageFile);
-      });
-
-      const base64Data = base64.split(',')[1];
-      const prompt = "Analyze this product image and provide relevant tags, categories, and a brief description that would help categorize and market this product.";
-
-      // In a real implementation, you would call the Gemini API
-      // For demo purposes, we'll simulate the response
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      const result = await apiService.generateDescriptionFromImage(imageFile, productName);
       
-      const analysis = `This appears to be a high-quality product with excellent visual appeal. Based on the image analysis, I can identify key features that would appeal to customers. The product shows good craftsmanship and attention to detail. Suggested tags: premium, quality, stylish, functional. This would fit well in categories related to lifestyle and everyday essentials.`;
-
-      onImageAnalyzed?.(analysis);
+      if (result.description) {
+        onDescriptionGenerated?.(result.description);
+      }
+      
+      if (result.fallback) {
+        setError('AI service is currently unavailable. Generated a fallback description.');
+      }
     } catch (error) {
       console.error('Error analyzing image:', error);
+      setError('Failed to analyze image. Please try again or use text-based description generation.');
     } finally {
       setIsAnalyzing(false);
     }
@@ -75,18 +80,24 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
   return (
     <div className="bg-gradient-to-r from-purple-50 to-blue-50 border border-purple-200 rounded-lg p-6 space-y-4">
       <div className="flex items-center space-x-2">
-        <Wand2 className="h-6 w-6 text-purple-600" />
-        <h3 className="text-lg font-semibold text-gray-900">AI Assistant</h3>
+        <Sparkles className="h-6 w-6 text-purple-600" />
+        <h3 className="text-lg font-semibold text-gray-900">AI Description Generator</h3>
       </div>
       
       <p className="text-gray-600 text-sm">
-        Use AI to enhance your product listings with compelling descriptions and image analysis.
+        Use AI to generate compelling product descriptions from text or analyze product images for automatic description generation.
       </p>
+
+      {error && (
+        <div className="bg-yellow-50 border border-yellow-200 rounded-md p-3">
+          <p className="text-yellow-800 text-sm">{error}</p>
+        </div>
+      )}
 
       <div className="flex flex-col sm:flex-row gap-4">
         <button
           onClick={generateDescription}
-          disabled={isGenerating || !productName}
+          disabled={isGenerating || isAnalyzing || !productName.trim()}
           className="flex-1 bg-purple-600 text-white px-4 py-3 rounded-md hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
         >
           {isGenerating ? (
@@ -97,21 +108,21 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
           ) : (
             <>
               <Wand2 className="h-4 w-4 mr-2" />
-              Generate Description
+              Generate from Text
             </>
           )}
         </button>
 
-        <label className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 transition-colors flex items-center justify-center cursor-pointer">
+        <label className="flex-1 bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center cursor-pointer">
           {isAnalyzing ? (
             <>
               <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              Analyzing...
+              Analyzing Image...
             </>
           ) : (
             <>
               <Image className="h-4 w-4 mr-2" />
-              Analyze Image
+              Generate from Image
             </>
           )}
           <input
@@ -122,13 +133,14 @@ const AIAssistant: React.FC<AIAssistantProps> = ({
               const file = e.target.files?.[0];
               if (file) analyzeImage(file);
             }}
-            disabled={isAnalyzing}
+            disabled={isGenerating || isAnalyzing}
           />
         </label>
       </div>
 
-      <div className="text-xs text-gray-500">
-        <p>💡 Tip: Fill in the product name and features above for better AI-generated descriptions.</p>
+      <div className="text-xs text-gray-500 space-y-1">
+        <p>💡 <strong>Text Generation:</strong> Enter product name and category for AI-powered description generation.</p>
+        <p>📸 <strong>Image Analysis:</strong> Upload a product image to automatically generate a description based on visual analysis.</p>
       </div>
     </div>
   );

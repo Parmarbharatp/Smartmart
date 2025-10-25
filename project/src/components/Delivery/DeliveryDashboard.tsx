@@ -1,49 +1,98 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Package, Truck, CheckCircle, Clock, AlertTriangle, MapPin, Phone } from 'lucide-react';
-import { Order, User, Product } from '../../types';
+import { Package, Truck, CheckCircle, Clock, AlertTriangle, MapPin, Phone, Eye, CheckCircle2, XCircle } from 'lucide-react';
+import { apiService } from '../../services/api';
 
 const DeliveryDashboard: React.FC = () => {
   const { user } = useAuth();
-  const [assignedOrders, setAssignedOrders] = useState<Order[]>([]);
-  const [customers, setCustomers] = useState<User[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
-  const [activeTab, setActiveTab] = useState<'active' | 'history'>('active');
+  const [assignedOrders, setAssignedOrders] = useState<any[]>([]);
+  const [availableOrders, setAvailableOrders] = useState<any[]>([]);
+  const [activeTab, setActiveTab] = useState<'available' | 'active' | 'history'>('available');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (user && user.role === 'delivery_boy') {
-      const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-      const myOrders = allOrders.filter((order: Order) => order.deliveryBoyId === user.id);
-      setAssignedOrders(myOrders.sort((a: Order, b: Order) => 
-        new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()
-      ));
-
-      const allUsers = JSON.parse(localStorage.getItem('users') || '[]');
-      setCustomers(allUsers.filter((u: User) => u.role === 'customer'));
-
-      const allProducts = JSON.parse(localStorage.getItem('products') || '[]');
-      setProducts(allProducts);
+      loadOrders();
     }
   }, [user]);
 
-  const updateDeliveryStatus = (orderId: string, status: string, notes?: string) => {
-    const allOrders = JSON.parse(localStorage.getItem('orders') || '[]');
-    const updatedOrders = allOrders.map((order: Order) => {
-      if (order.id === orderId) {
-        return {
-          ...order,
-          deliveryStatus: status,
-          deliveryNotes: notes || order.deliveryNotes,
-          status: status === 'delivered' ? 'delivered' : order.status
-        };
+  const loadOrders = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // First, let's check all orders for debugging
+      console.log('🔍 Debug: Checking all orders in database...');
+      try {
+        const allOrders = await apiService.getAllOrdersDebug();
+        console.log('📊 All orders in database:', allOrders.length);
+        allOrders.forEach((order, index) => {
+          console.log(`Order ${index + 1}:`, {
+            id: order._id,
+            status: order.status,
+            deliveryBoyId: order.deliveryBoyId,
+            deliveryStatus: order.deliveryStatus,
+            createdAt: order.createdAt
+          });
+        });
+      } catch (debugError) {
+        console.log('⚠️ Could not fetch debug orders:', debugError);
       }
-      return order;
-    });
-    
-    localStorage.setItem('orders', JSON.stringify(updatedOrders));
-    
-    const myOrders = updatedOrders.filter((order: Order) => order.deliveryBoyId === user!.id);
-    setAssignedOrders(myOrders);
+
+      const [availRes, assignedRes] = await Promise.allSettled([
+        apiService.getAvailableOrders(),
+        apiService.getMyOrders()
+      ]);
+      
+      console.log('Available orders response:', availRes);
+      console.log('Assigned orders response:', assignedRes);
+      
+      if (availRes.status === 'fulfilled') {
+        setAvailableOrders(availRes.value.orders || []);
+        console.log('Available orders count:', availRes.value.orders?.length || 0);
+        if (availRes.value.orders?.length > 0) {
+          console.log('First available order:', availRes.value.orders[0]);
+        }
+      } else {
+        console.error('Failed to load available orders:', availRes.reason);
+        setAvailableOrders([]);
+      }
+      if (assignedRes.status === 'fulfilled') {
+        setAssignedOrders(assignedRes.value.orders || []);
+        console.log('Assigned orders count:', assignedRes.value.orders?.length || 0);
+      } else {
+        console.error('Failed to load assigned orders:', assignedRes.reason);
+        setAssignedOrders([]);
+      }
+    } catch (error) {
+      console.error('Error loading orders:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const acceptOrder = async (orderId: string) => {
+    try {
+      setLoading(true);
+      await apiService.acceptDelivery(orderId);
+      await loadOrders(); // Reload orders
+    } catch (err: any) {
+      setError(err.message || 'Failed to accept order');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const updateDeliveryStatus = async (orderId: string, status: string, notes?: string) => {
+    try {
+      setLoading(true);
+      await apiService.updateDeliveryStatus(orderId, status, notes);
+      await loadOrders(); // Reload orders
+    } catch (err: any) {
+      setError(err.message || 'Failed to update delivery status');
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!user || user.role !== 'delivery_boy') {
@@ -58,7 +107,7 @@ const DeliveryDashboard: React.FC = () => {
   }
 
   const activeOrders = assignedOrders.filter(order => 
-    order.deliveryStatus !== 'delivered' && order.deliveryStatus !== 'failed'
+    order.deliveryStatus && order.deliveryStatus !== 'delivered' && order.deliveryStatus !== 'failed'
   );
   const completedOrders = assignedOrders.filter(order => 
     order.deliveryStatus === 'delivered' || order.deliveryStatus === 'failed'
@@ -111,7 +160,17 @@ const DeliveryDashboard: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center">
-              <Package className="h-8 w-8 text-blue-600" />
+              <Eye className="h-8 w-8 text-blue-600" />
+              <div className="ml-4">
+                <p className="text-sm text-gray-600">Available Orders</p>
+                <p className="text-2xl font-bold text-gray-900">{availableOrders.length}</p>
+              </div>
+            </div>
+          </div>
+          
+          <div className="bg-white rounded-lg shadow-sm p-6">
+            <div className="flex items-center">
+              <Package className="h-8 w-8 text-yellow-600" />
               <div className="ml-4">
                 <p className="text-sm text-gray-600">Active Deliveries</p>
                 <p className="text-2xl font-bold text-gray-900">{activeOrders.length}</p>
@@ -142,24 +201,29 @@ const DeliveryDashboard: React.FC = () => {
               </div>
             </div>
           </div>
-          
-          <div className="bg-white rounded-lg shadow-sm p-6">
-            <div className="flex items-center">
-              <AlertTriangle className="h-8 w-8 text-red-600" />
-              <div className="ml-4">
-                <p className="text-sm text-gray-600">Failed Deliveries</p>
-                <p className="text-2xl font-bold text-gray-900">
-                  {assignedOrders.filter(order => order.deliveryStatus === 'failed').length}
-                </p>
-              </div>
-            </div>
-          </div>
         </div>
+
+        {/* Error Message */}
+        {error && (
+          <div className="mb-6 bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg">
+            {error}
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="bg-white rounded-lg shadow-sm">
           <div className="border-b border-gray-200">
             <nav className="flex space-x-8 px-6">
+              <button
+                onClick={() => setActiveTab('available')}
+                className={`py-4 px-2 border-b-2 font-medium text-sm ${
+                  activeTab === 'available'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Available Orders ({availableOrders.length})
+              </button>
               <button
                 onClick={() => setActiveTab('active')}
                 className={`py-4 px-2 border-b-2 font-medium text-sm ${
@@ -184,21 +248,46 @@ const DeliveryDashboard: React.FC = () => {
           </div>
 
           <div className="p-6">
-            {activeTab === 'active' && (
+            {loading && (
+              <div className="text-center py-8">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+                <p className="text-gray-600 mt-2">Loading orders...</p>
+              </div>
+            )}
+
+            {!loading && activeTab === 'available' && (
+              <div className="space-y-6">
+                {availableOrders.length === 0 ? (
+                  <div className="text-center py-12">
+                    <Eye className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+                    <h3 className="text-lg font-medium text-gray-900 mb-2">No available orders</h3>
+                    <p className="text-gray-600">There are no orders available for delivery at the moment.</p>
+                  </div>
+                ) : (
+                  availableOrders.map((order) => (
+                    <AvailableOrderCard
+                      key={order._id}
+                      order={order}
+                      onAccept={acceptOrder}
+                    />
+                  ))
+                )}
+              </div>
+            )}
+
+            {!loading && activeTab === 'active' && (
               <div className="space-y-6">
                 {activeOrders.length === 0 ? (
                   <div className="text-center py-12">
                     <Package className="h-12 w-12 text-gray-400 mx-auto mb-4" />
                     <h3 className="text-lg font-medium text-gray-900 mb-2">No active deliveries</h3>
-                    <p className="text-gray-600">You don't have any deliveries assigned at the moment.</p>
+                    <p className="text-gray-600">You don't have any active deliveries at the moment.</p>
                   </div>
                 ) : (
                   activeOrders.map((order) => (
                     <DeliveryCard
-                      key={order.id}
+                      key={order._id}
                       order={order}
-                      customers={customers}
-                      products={products}
                       onUpdateStatus={updateDeliveryStatus}
                       getStatusIcon={getStatusIcon}
                       getStatusColor={getStatusColor}
@@ -208,7 +297,7 @@ const DeliveryDashboard: React.FC = () => {
               </div>
             )}
 
-            {activeTab === 'history' && (
+            {!loading && activeTab === 'history' && (
               <div className="space-y-6">
                 {completedOrders.length === 0 ? (
                   <div className="text-center py-12">
@@ -219,10 +308,8 @@ const DeliveryDashboard: React.FC = () => {
                 ) : (
                   completedOrders.map((order) => (
                     <DeliveryCard
-                      key={order.id}
+                      key={order._id}
                       order={order}
-                      customers={customers}
-                      products={products}
                       onUpdateStatus={updateDeliveryStatus}
                       getStatusIcon={getStatusIcon}
                       getStatusColor={getStatusColor}
@@ -239,22 +326,102 @@ const DeliveryDashboard: React.FC = () => {
   );
 };
 
+// Available Order Card Component
+const AvailableOrderCard: React.FC<{
+  order: any;
+  onAccept: (orderId: string) => void;
+}> = ({ order, onAccept }) => {
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-6 hover:shadow-md transition-shadow">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h3 className="text-lg font-semibold text-gray-900">Order #{order.orderNumber}</h3>
+          <p className="text-sm text-gray-600">
+            Placed on {new Date(order.orderDate).toLocaleDateString()}
+          </p>
+        </div>
+        <span className="px-3 py-1 rounded-full text-sm font-medium bg-green-100 text-green-800">
+          Available
+        </span>
+      </div>
+
+      {/* Customer Info */}
+      <div className="bg-gray-50 rounded-lg p-4 mb-4">
+        <h4 className="font-medium text-gray-900 mb-2">Customer Details</h4>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+          <div className="flex items-center">
+            <MapPin className="h-4 w-4 text-gray-400 mr-2" />
+            <span>{order.shippingAddress}</span>
+          </div>
+          {order.customerId && (
+            <div className="flex items-center">
+              <Phone className="h-4 w-4 text-gray-400 mr-2" />
+              <span>{order.customerId.name} - {order.customerId.phoneNumber}</span>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Shop Info */}
+      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+        <h4 className="font-medium text-gray-900 mb-2">Shop Details</h4>
+        <div className="text-sm">
+          <div className="flex items-center">
+            <MapPin className="h-4 w-4 text-gray-400 mr-2" />
+            <span>{order.shopId?.shopName} - {order.shopId?.address}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Order Items */}
+      <div className="mb-4">
+        <h4 className="font-medium text-gray-900 mb-2">Items ({order.items.length})</h4>
+        <div className="space-y-2">
+          {order.items.slice(0, 3).map((item: any, index: number) => (
+            <div key={index} className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">
+                {item.productId?.productName} × {item.quantity}
+              </span>
+              <span className="font-medium">₹{item.priceAtPurchase * item.quantity}</span>
+            </div>
+          ))}
+          {order.items.length > 3 && (
+            <p className="text-sm text-gray-500">+{order.items.length - 3} more items</p>
+          )}
+        </div>
+        <div className="mt-2 pt-2 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <span className="font-medium text-gray-900">Total Amount:</span>
+            <span className="font-bold text-lg text-gray-900">₹{order.totalAmount}</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Accept Button */}
+      <button
+        onClick={() => onAccept(order._id)}
+        className="w-full bg-green-600 hover:bg-green-700 text-white font-medium py-3 px-4 rounded-lg transition-colors flex items-center justify-center"
+      >
+        <CheckCircle2 className="h-5 w-5 mr-2" />
+        Accept Delivery
+      </button>
+    </div>
+  );
+};
+
+// Delivery Card Component
 const DeliveryCard: React.FC<{
-  order: Order;
-  customers: User[];
-  products: Product[];
+  order: any;
   onUpdateStatus: (orderId: string, status: string, notes?: string) => void;
   getStatusIcon: (status: string) => React.ReactNode;
   getStatusColor: (status: string) => string;
   isHistory?: boolean;
-}> = ({ order, customers, products, onUpdateStatus, getStatusIcon, getStatusColor, isHistory = false }) => {
+}> = ({ order, onUpdateStatus, getStatusIcon, getStatusColor, isHistory = false }) => {
   const [notes, setNotes] = useState(order.deliveryNotes || '');
   const [showNotes, setShowNotes] = useState(false);
 
-  const customer = customers.find(c => c.id === order.customerId);
-
   const handleStatusUpdate = (newStatus: string) => {
-    onUpdateStatus(order.id, newStatus, notes);
+    onUpdateStatus(order._id, newStatus, notes);
     setShowNotes(false);
   };
 
@@ -282,7 +449,7 @@ const DeliveryCard: React.FC<{
     <div className="bg-white border border-gray-200 rounded-lg p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 className="text-lg font-semibold text-gray-900">Order #{order.id}</h3>
+          <h3 className="text-lg font-semibold text-gray-900">Order #{order.orderNumber}</h3>
           <p className="text-sm text-gray-600">
             Placed on {new Date(order.orderDate).toLocaleDateString()}
           </p>
@@ -301,12 +468,23 @@ const DeliveryCard: React.FC<{
             <MapPin className="h-4 w-4 text-gray-400 mr-2" />
             <span>{order.shippingAddress}</span>
           </div>
-          {customer && (
+          {order.customerId && (
             <div className="flex items-center">
               <Phone className="h-4 w-4 text-gray-400 mr-2" />
-              <span>{customer.name} - {customer.phoneNumber}</span>
+              <span>{order.customerId.name} - {order.customerId.phoneNumber}</span>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Shop Info */}
+      <div className="bg-blue-50 rounded-lg p-4 mb-4">
+        <h4 className="font-medium text-gray-900 mb-2">Shop Details</h4>
+        <div className="text-sm">
+          <div className="flex items-center">
+            <MapPin className="h-4 w-4 text-gray-400 mr-2" />
+            <span>{order.shopId?.shopName} - {order.shopId?.address}</span>
+          </div>
         </div>
       </div>
 
@@ -314,19 +492,23 @@ const DeliveryCard: React.FC<{
       <div className="mb-4">
         <h4 className="font-medium text-gray-900 mb-2">Items ({order.items.length})</h4>
         <div className="space-y-2">
-          {order.items.slice(0, 2).map((item, index) => {
-            const product = products.find(p => p.id === item.productId);
-            return (
-              <div key={index} className="flex items-center text-sm">
-                <span className="text-gray-600">
-                  {product?.productName} × {item.quantity}
-                </span>
-              </div>
-            );
-          })}
-          {order.items.length > 2 && (
-            <p className="text-sm text-gray-500">+{order.items.length - 2} more items</p>
+          {order.items.slice(0, 3).map((item: any, index: number) => (
+            <div key={index} className="flex items-center justify-between text-sm">
+              <span className="text-gray-600">
+                {item.productId?.productName} × {item.quantity}
+              </span>
+              <span className="font-medium">₹{item.priceAtPurchase * item.quantity}</span>
+            </div>
+          ))}
+          {order.items.length > 3 && (
+            <p className="text-sm text-gray-500">+{order.items.length - 3} more items</p>
           )}
+        </div>
+        <div className="mt-2 pt-2 border-t border-gray-200">
+          <div className="flex justify-between items-center">
+            <span className="font-medium text-gray-900">Total Amount:</span>
+            <span className="font-bold text-lg text-gray-900">₹{order.totalAmount}</span>
+          </div>
         </div>
       </div>
 
@@ -371,7 +553,7 @@ const DeliveryCard: React.FC<{
           {showNotes && (
             <button
               onClick={() => {
-                onUpdateStatus(order.id, order.deliveryStatus || 'assigned', notes);
+                onUpdateStatus(order._id, order.deliveryStatus || 'assigned', notes);
                 setShowNotes(false);
               }}
               className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700 transition-colors"

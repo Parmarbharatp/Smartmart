@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Package, Truck, CheckCircle, Clock, X } from 'lucide-react';
+import { Package, Truck, CheckCircle, Clock, X, MapPin, Phone, User } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { Order, Product } from '../../types';
 import { apiService } from '../../services/api';
@@ -25,6 +25,14 @@ const OrdersPage: React.FC = () => {
           shippingAddress: o.shippingAddress,
           paymentStatus: o.paymentStatus || 'paid',
           items: o.items.map((it: any) => ({ productId: String(it.productId), quantity: it.quantity, priceAtPurchase: it.priceAtPurchase })),
+          // Add delivery tracking data
+          deliveryStatus: o.deliveryStatus,
+          deliveryBoyId: o.deliveryBoyId,
+          deliveryNotes: o.deliveryNotes,
+          actualDeliveryDate: o.actualDeliveryDate,
+          // Add populated data
+          shopData: o.shopId,
+          deliveryBoyData: o.deliveryBoyId,
         }));
         setOrders(mappedOrders.sort((a, b) => new Date(b.orderDate).getTime() - new Date(a.orderDate).getTime()));
 
@@ -190,7 +198,7 @@ const OrderCard: React.FC<{ order: Order; products: Product[] }> = ({ order, pro
               <span className="ml-2 capitalize">{order.status}</span>
             </span>
             <div className="text-right">
-              <p className="text-lg font-semibold text-gray-900">${order.totalAmount.toFixed(2)}</p>
+              <p className="text-lg font-semibold text-gray-900">₹{order.totalAmount.toFixed(2)}</p>
               <p className="text-sm text-gray-600">
                 Payment: <span className="capitalize">{order.paymentStatus}</span>
               </p>
@@ -229,12 +237,12 @@ const OrderCard: React.FC<{ order: Order; products: Product[] }> = ({ order, pro
                     <div className="flex-1">
                       <h5 className="font-medium text-gray-900">{product.productName}</h5>
                       <p className="text-sm text-gray-600">
-                        Quantity: {item.quantity} × ${item.priceAtPurchase.toFixed(2)}
+                        Quantity: {item.quantity} × ₹{item.priceAtPurchase.toFixed(2)}
                       </p>
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-gray-900">
-                        ${(item.quantity * item.priceAtPurchase).toFixed(2)}
+                        ₹{(item.quantity * item.priceAtPurchase).toFixed(2)}
                       </p>
                     </div>
                   </>
@@ -243,6 +251,85 @@ const OrderCard: React.FC<{ order: Order; products: Product[] }> = ({ order, pro
             );
           })}
         </div>
+
+        {/* Delivery Tracking Section */}
+        {(order as any).deliveryStatus && (
+          <div className="mt-6 pt-6 border-t border-gray-200">
+            <h5 className="font-medium text-gray-900 mb-4">Delivery Tracking</h5>
+            
+            {/* Delivery Boy Info */}
+            {(order as any).deliveryBoyData && (
+              <div className="bg-blue-50 rounded-lg p-4 mb-4">
+                <div className="flex items-center space-x-3">
+                  <User className="h-5 w-5 text-blue-600" />
+                  <div>
+                    <p className="font-medium text-gray-900">Delivery Partner</p>
+                    <p className="text-sm text-gray-600">
+                      {(order as any).deliveryBoyData.name} - {(order as any).deliveryBoyData.phoneNumber}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Delivery Status Timeline */}
+            <div className="space-y-3">
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${(order as any).deliveryStatus === 'assigned' || (order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className={`h-4 w-4 ${(order as any).deliveryStatus === 'assigned' || (order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <span className={`text-sm ${(order as any).deliveryStatus === 'assigned' || (order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`}>
+                    Order Assigned to Delivery Partner
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${(order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+                <div className="flex items-center space-x-2">
+                  <Package className={`h-4 w-4 ${(order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <span className={`text-sm ${(order as any).deliveryStatus === 'picked_up' || (order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`}>
+                    Order Picked Up from Shop
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${(order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'bg-blue-600' : 'bg-gray-300'}`}></div>
+                <div className="flex items-center space-x-2">
+                  <Truck className={`h-4 w-4 ${(order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`} />
+                  <span className={`text-sm ${(order as any).deliveryStatus === 'out_for_delivery' || (order as any).deliveryStatus === 'delivered' ? 'text-blue-600' : 'text-gray-400'}`}>
+                    Out for Delivery
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-3">
+                <div className={`w-3 h-3 rounded-full ${(order as any).deliveryStatus === 'delivered' ? 'bg-green-600' : 'bg-gray-300'}`}></div>
+                <div className="flex items-center space-x-2">
+                  <CheckCircle className={`h-4 w-4 ${(order as any).deliveryStatus === 'delivered' ? 'text-green-600' : 'text-gray-400'}`} />
+                  <span className={`text-sm ${(order as any).deliveryStatus === 'delivered' ? 'text-green-600' : 'text-gray-400'}`}>
+                    Delivered
+                    {(order as any).actualDeliveryDate && (
+                      <span className="ml-2 text-xs">
+                        ({new Date((order as any).actualDeliveryDate).toLocaleDateString()})
+                      </span>
+                    )}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Delivery Notes */}
+            {(order as any).deliveryNotes && (
+              <div className="mt-4 p-3 bg-gray-50 rounded-lg">
+                <p className="text-sm text-gray-600">
+                  <span className="font-medium">Delivery Note:</span> {(order as any).deliveryNotes}
+                </p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Order Status Timeline */}
         <div className="mt-6 pt-6 border-t border-gray-200">

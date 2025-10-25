@@ -149,6 +149,7 @@ const ShopProfile: React.FC<ShopProfileProps> = ({ shop, isOwner = false }) => {
         </div>
 
         {/* Location Information */}
+        {false && (
         <div className="lg:col-span-2 space-y-6">
           <div className="bg-blue-50 p-6 rounded-lg">
             <div className="flex items-center justify-between mb-4">
@@ -166,87 +167,7 @@ const ShopProfile: React.FC<ShopProfileProps> = ({ shop, isOwner = false }) => {
                 </button>
               )}
             </div>
-
-            {isEditingLocation ? (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleUpdateLocation}
-                    disabled={isLoading}
-                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Navigation className="mr-2 h-4 w-4" />
-                    )}
-                    {isLoading ? 'Getting Location...' : 'Get Current Location'}
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    className="flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                {shop.location ? (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Shop Address</label>
-                      <p className="text-gray-900">{shop.location.formattedAddress}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">City</label>
-                        <p className="text-gray-900">{shop.location.city || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">State</label>
-                        <p className="text-gray-900">{shop.location.state || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">Country</label>
-                        <p className="text-gray-900">{shop.location.country || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">Postal Code</label>
-                        <p className="text-gray-900">{shop.location.postalCode || 'N/A'}</p>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Coordinates</label>
-                      <p className="text-gray-900 font-mono text-sm">
-                        {shop.location.coordinates.lat.toFixed(6)}, {shop.location.coordinates.lng.toFixed(6)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Last Updated</label>
-                      <p className="text-gray-900">
-                        {new Date(shop.location.lastUpdated).toLocaleString()}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <MapPin className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                    <p className="text-gray-500 mb-4">No location information available</p>
-                    {isOwner && (
-                      <button
-                        onClick={() => setIsEditingLocation(true)}
-                        className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                      >
-                        <Navigation className="mr-2 h-4 w-4" />
-                        Set Shop Location
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
+            {/* content hidden for now */}
           </div>
 
           {/* Map Placeholder */}
@@ -257,14 +178,12 @@ const ShopProfile: React.FC<ShopProfileProps> = ({ shop, isOwner = false }) => {
                 <div className="text-center">
                   <MapPin className="mx-auto h-12 w-12 text-gray-400 mb-2" />
                   <p className="text-gray-500">Map view would be displayed here</p>
-                  <p className="text-sm text-gray-400">
-                    Coordinates: {shop.location.coordinates.lat.toFixed(4)}, {shop.location.coordinates.lng.toFixed(4)}
-                  </p>
                 </div>
               </div>
             </div>
           )}
         </div>
+        )}
       </div>
 
       {/* Message Display */}

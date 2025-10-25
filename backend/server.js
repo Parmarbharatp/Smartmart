@@ -5,6 +5,8 @@ import morgan from 'morgan';
 import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import connectDB from './config/database.js';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import shopRoutes from './routes/shops.js';
 import productRoutes from './routes/products.js';
@@ -12,6 +14,7 @@ import categoryRoutes from './routes/categories.js';
 import orderRoutes from './routes/orders.js';
 import cartRoutes from './routes/cart.js';
 import reviewRoutes from './routes/reviews.js';
+import aiRoutes from './routes/ai.js';
 import { User } from './models/User.js';
 import { Category } from './models/Category.js';
 import bcrypt from 'bcryptjs';
@@ -74,8 +77,25 @@ app.use('/api/categories', categoryRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/reviews', reviewRoutes);
+app.use('/api/ai', aiRoutes);
 
-// 404 handler
+// Serve frontend in production
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const distPath = path.resolve(__dirname, '../project/dist');
+app.use(express.static(distPath));
+
+// SPA fallback: serve index.html for non-API routes
+app.get(/^(?!\/api\/).*/, (req, res, next) => {
+  // Only serve the SPA if the file exists (build done)
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) {
+      next();
+    }
+  });
+});
+
+// 404 handler (for APIs and unmatched files)
 app.use('*', (req, res) => {
   res.status(404).json({
     status: 'error',

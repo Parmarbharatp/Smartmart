@@ -228,6 +228,16 @@ router.post('/', verifyToken, validateProduct, async (req, res) => {
     });
   } catch (error) {
     console.error('Create product error:', error);
+    // Duplicate key error (e.g., unique index on shopId + productName)
+    if (error && error.code === 11000) {
+      return res.status(409).json({
+        status: 'error',
+        message: 'A product with this name already exists in your shop. Please use a different name.',
+        errors: [
+          { param: 'productName', msg: 'Duplicate product name in this shop' }
+        ]
+      });
+    }
     res.status(500).json({
       status: 'error',
       message: 'Internal server error while creating product'

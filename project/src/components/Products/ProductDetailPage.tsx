@@ -238,7 +238,7 @@ const ProductDetailPage: React.FC = () => {
               </div>
 
               <div className="text-3xl font-bold text-blue-600 mb-6">
-                ${product.price.toFixed(2)}
+                ₹{product.price.toFixed(2)}
               </div>
 
               <p className="text-gray-600 mb-6 leading-relaxed">
@@ -277,7 +277,7 @@ const ProductDetailPage: React.FC = () => {
                 </div>
                 <div className="flex items-center mb-2">
                   <Truck className="h-5 w-5 text-gray-400 mr-2" />
-                  <span className="text-sm text-gray-600">Free shipping on orders over $50</span>
+                  <span className="text-sm text-gray-600">Free shipping on orders over ₹500</span>
                 </div>
                 <div className="flex items-center">
                   <Shield className="h-5 w-5 text-gray-400 mr-2" />

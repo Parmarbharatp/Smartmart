@@ -220,10 +220,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
             <div className="flex items-center justify-between">
               <div className="flex items-center space-x-4">
                 <div>
-                  <span className="price-current">${product.price}</span>
-                  <span className="price-original ml-2">${originalPrice.toFixed(2)}</span>
+                  <span className="price-current">₹{product.price}</span>
+                  <span className="price-original ml-2">₹{originalPrice.toFixed(2)}</span>
                 </div>
-                <span className="price-discount">Save ${(originalPrice - product.price).toFixed(2)}</span>
+                <span className="price-discount">Save ₹{(originalPrice - product.price).toFixed(2)}</span>
               </div>
               
                               {user?.role === 'customer' && product.status === 'available' ? (
@@ -418,8 +418,8 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid' })
         {/* Price */}
         <div className="flex items-center justify-between mb-4">
           <div>
-            <span className="price-current text-xl">${product.price}</span>
-            <span className="price-original ml-2">${originalPrice.toFixed(2)}</span>
+            <span className="price-current text-xl">₹{product.price}</span>
+            <span className="price-original ml-2">₹{originalPrice.toFixed(2)}</span>
           </div>
           <span className="price-discount">-{mockDiscount}%</span>
         </div>

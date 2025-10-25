@@ -340,7 +340,7 @@ const ProductsPage: React.FC = () => {
 
                 {filters.priceRange && (
                   <span className="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-                    ${filters.priceRange[0]} - ${filters.priceRange[1]}
+                    ₹{filters.priceRange[0]} - ₹{filters.priceRange[1]}
                     <button
                       onClick={() => handleFilterChange({ ...filters, priceRange: null })}
                       className="ml-2 hover:text-purple-600 dark:hover:text-purple-200"

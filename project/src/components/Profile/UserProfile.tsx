@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { MapPin, Navigation, Edit3, Save, X, Loader2 } from 'lucide-react';
-// import { useLocationContext } from '../../contexts/LocationContext';
+import { MapPin } from 'lucide-react';
+import { useLocationTracking } from '../../contexts/LocationTrackingContext';
 import { apiService } from '../../services/api';
 import type { LocationDetails } from '../../services/location';
 import { LocationTrackingSettings } from './LocationTrackingSettings';
@@ -13,230 +13,211 @@ interface UserProfileProps {
     role: string;
     phoneNumber?: string;
     address?: string;
-    location?: {
-      coordinates: {
-        lat: number;
-        lng: number;
-      };
+    location?: { type: 'Point'; coordinates: [number, number] };
+    locationDetails?: {
       address: string;
-      city: string;
-      state: string;
-      country: string;
-      postalCode?: string;
       formattedAddress: string;
-      placeId?: string;
-      lastUpdated: string;
+      lastUpdated?: string | null;
+      houseNumber?: string;
+      street?: string;
     };
   };
 }
 
 const UserProfile: React.FC<UserProfileProps> = ({ user }) => {
-  console.log('UserProfile: Component rendering with user:', user);
-  const [isEditingLocation, setIsEditingLocation] = useState(false);
-  const [isLoading, setIsLoading] = useState(false);
+  const { state: locationState } = useLocationTracking();
   const [message, setMessage] = useState('');
-  const [locationDetails, setLocationDetails] = useState<LocationDetails | null>(null);
+  const [extraAddress, setExtraAddress] = useState<string>(user.locationDetails?.street || user.locationDetails?.houseNumber || '');
+  const [isSaving, setIsSaving] = useState(false);
+  const [errors, setErrors] = useState<{ name?: string; phoneNumber?: string; extraAddress?: string }>({});
 
-  // const { locateMeWithDetails, isMapsReady } = useLocationContext();
-  
-  // Temporary mock values
-  const locateMeWithDetails = async () => null;
-  const isMapsReady = true;
+  // Basic info state (restored)
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [profileDraft, setProfileDraft] = useState({
+    name: user.name || '',
+    email: user.email || '',
+    phoneNumber: user.phoneNumber || '',
+    address: user.address || ''
+  });
 
-  const handleUpdateLocation = async () => {
-    if (!isMapsReady) {
-      setMessage('Location service not ready. Please wait...');
-      return;
-    }
+  useEffect(() => {
+    setExtraAddress(user.locationDetails?.street || user.locationDetails?.houseNumber || '');
+  }, [user.locationDetails?.street, user.locationDetails?.houseNumber]);
 
-    setIsLoading(true);
-    setMessage('Getting your current location...');
+  useEffect(() => {
+    setProfileDraft({
+      name: user.name || '',
+      email: user.email || '',
+      phoneNumber: user.phoneNumber || '',
+      address: user.address || ''
+    });
+  }, [user.name, user.email, user.phoneNumber, user.address]);
 
+  const saveExtraAddress = async () => {
     try {
-      const details = await locateMeWithDetails();
-      
-      if (details) {
-        const locationData = {
-          coordinates: details.coordinates,
-          address: details.address,
-          city: details.city,
-          state: details.state,
-          country: details.country,
-          postalCode: details.postalCode,
-          formattedAddress: details.formattedAddress,
-          placeId: details.placeId
-        };
-
-        await apiService.updateUserLocation(locationData);
-        setLocationDetails(details);
-        setMessage(`Location updated: ${details.city}, ${details.state}`);
-        setIsEditingLocation(false);
-      } else {
-        setMessage('Failed to get location details');
+      if (!user.location || !Array.isArray(user.location.coordinates) || user.location.coordinates.length !== 2) {
+        setMessage('No coordinates on profile. Use Get Current Location first.');
+        return;
       }
-    } catch (error) {
-      console.error('Error updating location:', error);
-      setMessage('Error updating location. Please check permissions.');
+      setIsSaving(true);
+      const [lng, lat] = user.location.coordinates;
+      await apiService.updateUserLocation({
+        coordinates: { lat, lng },
+        // keep backend address as-is; only update the user-provided extra field
+        street: extraAddress,
+        houseNumber: extraAddress,
+        formattedAddress: user.locationDetails?.formattedAddress,
+        address: user.locationDetails?.address,
+      });
+      setMessage('Address details saved');
+    } catch (e) {
+      setMessage('Failed to save address details');
     } finally {
-      setIsLoading(false);
+      setIsSaving(false);
     }
   };
 
-  const handleCancelEdit = () => {
-    setIsEditingLocation(false);
-    setMessage('');
+  const saveBasicInfo = async () => {
+    // client-side validation
+    const newErrors: { name?: string; phoneNumber?: string; extraAddress?: string } = {};
+    if (profileDraft.name && (!/^[a-zA-Z\s\-']+$/.test(profileDraft.name) || profileDraft.name.trim().length < 2)) {
+      newErrors.name = 'Enter a valid name (letters/spaces, min 2 chars)';
+    }
+    if (profileDraft.phoneNumber && !/^\d{10}$/.test(profileDraft.phoneNumber)) {
+      newErrors.phoneNumber = 'Phone must be exactly 10 digits';
+    }
+    if (extraAddress && extraAddress.length > 150) {
+      newErrors.extraAddress = 'Too long (max 150 chars)';
+    }
+    setErrors(newErrors);
+    if (Object.keys(newErrors).length > 0) return;
+
+    try {
+      setIsSaving(true);
+      await apiService.updateProfile({
+        name: profileDraft.name,
+        phoneNumber: profileDraft.phoneNumber,
+      });
+      // Also persist extraAddress as street/houseNumber with existing coordinates if present
+      if (user.location && Array.isArray(user.location.coordinates) && user.location.coordinates.length === 2) {
+        const [lng, lat] = user.location.coordinates;
+        await apiService.updateUserLocation({
+          coordinates: { lat, lng },
+          street: extraAddress,
+          houseNumber: extraAddress,
+          formattedAddress: user.locationDetails?.formattedAddress,
+          address: user.locationDetails?.address,
+        });
+      }
+      setIsEditingProfile(false);
+      setMessage('Profile updated');
+    } catch (e) {
+      setMessage('Failed to update profile');
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   return (
-    <div className="max-w-4xl mx-auto p-6 bg-white rounded-lg shadow-lg">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">User Profile</h2>
-        <div className="flex items-center space-x-2">
-          <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-            {user.role.replace('_', ' ').toUpperCase()}
-          </span>
-        </div>
-      </div>
+    <div className="max-w-3xl mx-auto p-6 bg-white rounded-lg shadow-lg">
+      <h2 className="text-2xl font-bold text-gray-800 mb-6">User Profile</h2>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-        {/* Basic Information */}
-        <div className="space-y-6">
-          <div className="bg-gray-50 p-6 rounded-lg">
-            <h3 className="text-lg font-semibold mb-4 text-gray-800">Basic Information</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-sm font-medium text-gray-600">Name</label>
-                <p className="text-gray-900">{user.name}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Email</label>
-                <p className="text-gray-900">{user.email}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Phone</label>
-                <p className="text-gray-900">{user.phoneNumber || 'Not provided'}</p>
-              </div>
-              <div>
-                <label className="text-sm font-medium text-gray-600">Address</label>
-                <p className="text-gray-900">{user.address || 'Not provided'}</p>
-              </div>
+      {/* Basic Information (restored) */}
+      <div className="bg-gray-50 p-6 rounded-lg mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800">Basic Information</h3>
+          {!isEditingProfile ? (
+            <button className="px-3 py-1 text-sm bg-blue-600 text-white rounded" onClick={() => setIsEditingProfile(true)}>Edit</button>
+          ) : (
+            <div className="space-x-2">
+              <button className="px-3 py-1 text-sm bg-green-600 text-white rounded" onClick={saveBasicInfo} disabled={isSaving}>{isSaving ? 'Saving...' : 'Save'}</button>
+              <button className="px-3 py-1 text-sm bg-gray-600 text-white rounded" onClick={() => { setIsEditingProfile(false); setProfileDraft({ name: user.name || '', email: user.email || '', phoneNumber: user.phoneNumber || '', address: user.address || '' }); }}>Cancel</button>
             </div>
-          </div>
+          )}
         </div>
-
-        {/* Location Information */}
-        <div className="space-y-6">
-          <div className="bg-blue-50 p-6 rounded-lg">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold text-gray-800 flex items-center">
-                <MapPin className="mr-2 h-5 w-5" />
-                Location Information
-              </h3>
-              {!isEditingLocation && (
-                <button
-                  onClick={() => setIsEditingLocation(true)}
-                  className="flex items-center px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 transition-colors"
-                >
-                  <Edit3 className="mr-1 h-4 w-4" />
-                  Update
-                </button>
-              )}
-            </div>
-
-            {isEditingLocation ? (
-              <div className="space-y-4">
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={handleUpdateLocation}
-                    disabled={isLoading}
-                    className="flex items-center px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:bg-gray-400 disabled:cursor-not-allowed"
-                  >
-                    {isLoading ? (
-                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    ) : (
-                      <Navigation className="mr-2 h-4 w-4" />
-                    )}
-                    {isLoading ? 'Getting Location...' : 'Get Current Location'}
-                  </button>
-                  <button
-                    onClick={handleCancelEdit}
-                    className="flex items-center px-4 py-2 bg-gray-600 text-white rounded hover:bg-gray-700"
-                  >
-                    <X className="mr-2 h-4 w-4" />
-                    Cancel
-                  </button>
-                </div>
-              </div>
+        <div className="space-y-4">
+          <div>
+            <label className="text-sm font-medium text-gray-600">Name</label>
+            {isEditingProfile ? (
+              <>
+                <input className="w-full mt-1 px-3 py-2 border rounded" value={profileDraft.name} onChange={(e) => setProfileDraft({ ...profileDraft, name: e.target.value })} />
+                {errors.name && <p className="text-xs text-red-600 mt-1">{errors.name}</p>}
+              </>
             ) : (
-              <div className="space-y-3">
-                {/* Only show location if permission was granted and we have data */}
-                {user.location ? (
-                  <>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Current Location</label>
-                      <p className="text-gray-900">{user.location.formattedAddress}</p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">City</label>
-                        <p className="text-gray-900">{user.location.city || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">State</label>
-                        <p className="text-gray-900">{user.location.state || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">Country</label>
-                        <p className="text-gray-900">{user.location.country || 'N/A'}</p>
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium text-gray-600">Postal Code</label>
-                        <p className="text-gray-900">{user.location.postalCode || 'N/A'}</p>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Coordinates</label>
-                      <p className="text-gray-900 font-mono text-sm">
-                        {user.location.coordinates.lat.toFixed(6)}, {user.location.coordinates.lng.toFixed(6)}
-                      </p>
-                    </div>
-                    <div>
-                      <label className="text-sm font-medium text-gray-600">Last Updated</label>
-                      <p className="text-gray-900">
-                        {new Date(user.location.lastUpdated).toLocaleString()}
-                      </p>
-                    </div>
-                  </>
-                ) : (
-                  <div className="text-center py-8">
-                    <MapPin className="mx-auto h-12 w-12 text-gray-400 mb-4" />
-                    <p className="text-gray-500 mb-2">No location information available</p>
-                    <p className="text-xs text-gray-500 mb-4">Grant location permission to use your current location.</p>
-                    <button
-                      onClick={() => setIsEditingLocation(true)}
-                      className="flex items-center mx-auto px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-                    >
-                      <Navigation className="mr-2 h-4 w-4" />
-                      Enable Location
-                    </button>
-                  </div>
-                )}
-              </div>
+              <p className="text-gray-900">{user.name}</p>
+            )}
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-600">Email</label>
+            <p className="text-gray-900">{user.email}</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-gray-600">Phone</label>
+            {isEditingProfile ? (
+              <>
+                <input className="w-full mt-1 px-3 py-2 border rounded" value={profileDraft.phoneNumber} onChange={(e) => setProfileDraft({ ...profileDraft, phoneNumber: e.target.value })} />
+                {errors.phoneNumber && <p className="text-xs text-red-600 mt-1">{errors.phoneNumber}</p>}
+              </>
+            ) : (
+              <p className="text-gray-900">{user.phoneNumber || 'Not provided'}</p>
+            )}
+          </div>
+          {false && (
+          <div>
+            <label className="text-sm font-medium text-gray-600">Address</label>
+            {isEditingProfile ? (
+              <input className="w-full mt-1 px-3 py-2 border rounded" value={profileDraft.address} onChange={(e) => setProfileDraft({ ...profileDraft, address: e.target.value })} />
+            ) : (
+              <p className="text-gray-900">{user.address || 'Not provided'}</p>
+            )}
+          </div>
+          )}
+          <div>
+            <label className="text-sm font-medium text-gray-600">Address Details (House/Street/Society)</label>
+            {isEditingProfile ? (
+              <>
+                <input className="w-full mt-1 px-3 py-2 border rounded" placeholder="e.g. A-203, Sunflower Society" value={extraAddress} onChange={(e) => setExtraAddress(e.target.value)} />
+                {errors.extraAddress && <p className="text-xs text-red-600 mt-1">{errors.extraAddress}</p>}
+              </>
+            ) : (
+              <p className="text-gray-900">{extraAddress || 'Not provided'}</p>
             )}
           </div>
         </div>
       </div>
 
-      {/* Location Tracking Settings */}
-      <div className="mt-8">
-        <LocationTrackingSettings />
+      {/* Location Information (simplified) */}
+      <div className="bg-blue-50 p-6 rounded-lg mb-8">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-lg font-semibold text-gray-800 flex items-center">
+            <MapPin className="mr-2 h-5 w-5" />
+            Location Information
+          </h3>
+        </div>
+
+        {user.locationDetails ? (
+          <div className="space-y-4">
+            <div>
+              <label className="text-sm font-medium text-gray-600">Current Location</label>
+              <p className="text-gray-900">{user.locationDetails.formattedAddress || user.locationDetails.address}</p>
+            </div>
+            {user.locationDetails.lastUpdated && (
+              <div>
+                <label className="text-sm font-medium text-gray-600">Last Updated</label>
+                <p className="text-gray-900">{new Date(user.locationDetails.lastUpdated).toLocaleString()}</p>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div className="text-gray-600">No location saved yet. Use Get Current Location.</div>
+        )}
       </div>
 
-      {/* Message Display */}
+      {/* Location Tracking Settings */}
+      <LocationTrackingSettings />
+
       {message && (
-        <div className="mt-6 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
-          <p className="text-yellow-800">{message}</p>
-        </div>
+        <div className="mt-6 p-3 bg-green-50 border border-green-200 rounded text-green-800">{message}</div>
       )}
     </div>
   );

@@ -253,7 +253,7 @@ const PaymentPage: React.FC = () => {
                     </div>
                     <div className="text-right">
                       <p className="font-medium text-gray-900">
-                        ${(item.product.price * item.quantity).toFixed(2)}
+                        ₹{(item.product.price * item.quantity).toFixed(2)}
                       </p>
                     </div>
                   </div>
@@ -308,7 +308,7 @@ const PaymentPage: React.FC = () => {
               <div className="space-y-2 mb-4">
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="text-gray-900">${getCartTotal().toFixed(2)}</span>
+                  <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Shipping</span>
@@ -316,14 +316,14 @@ const PaymentPage: React.FC = () => {
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Tax</span>
-                  <span className="text-gray-900">$0.00</span>
+                  <span className="text-gray-900">₹0.00</span>
                 </div>
               </div>
               
               <div className="border-t border-gray-200 pt-4 mb-6">
                 <div className="flex justify-between text-base font-medium">
                   <span className="text-gray-900">Total</span>
-                  <span className="text-gray-900">${getCartTotal().toFixed(2)}</span>
+                  <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
                 </div>
               </div>
 
@@ -415,7 +415,7 @@ const PaymentPage: React.FC = () => {
               <div className="py-4 space-y-2">
                 <div className="flex items-center justify-between text-sm">
                   <span className="text-gray-600">Amount</span>
-                  <span className="font-semibold">₹{(getCartTotal()*83.0).toFixed(0)} / ${getCartTotal().toFixed(2)}</span>
+                  <span className="font-semibold">₹{getCartTotal().toFixed(2)}</span>
                 </div>
                 <button
                   onClick={() => { setIsProcessing(true); setTimeout(()=>{ setShowMockCheckout(false); handlePaymentSuccess('MOCK_'+Date.now()); }, 800); }}

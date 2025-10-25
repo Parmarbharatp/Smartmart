@@ -40,50 +40,39 @@ const userSchema = new mongoose.Schema({
     trim: true,
     default: ''
   },
-  // Location data
+  // GeoJSON location point for geospatial queries
   location: {
+    type: {
+      type: String,
+      enum: ['Point'],
+      default: undefined
+    },
     coordinates: {
-      lat: {
-        type: Number,
-        default: null
+      type: [Number], // [lng, lat]
+      validate: {
+        validator: function(arr) {
+          if (!Array.isArray(arr)) return false;
+          if (arr.length !== 2) return false;
+          const [lng, lat] = arr;
+          return Number.isFinite(lat) && Number.isFinite(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+        },
+        message: 'Coordinates must be [lng, lat] within valid ranges'
       },
-      lng: {
-        type: Number,
-        default: null
-      }
-    },
-    address: {
-      type: String,
-      default: ''
-    },
-    city: {
-      type: String,
-      default: ''
-    },
-    state: {
-      type: String,
-      default: ''
-    },
-    country: {
-      type: String,
-      default: ''
-    },
-    postalCode: {
-      type: String,
-      default: ''
-    },
-    formattedAddress: {
-      type: String,
-      default: ''
-    },
-    placeId: {
-      type: String,
-      default: ''
-    },
-    lastUpdated: {
-      type: Date,
-      default: null
+      default: undefined
     }
+  },
+  // Non-indexed human-readable location details
+  locationDetails: {
+    address: { type: String, default: '' },
+    houseNumber: { type: String, default: '' },
+    street: { type: String, default: '' },
+    city: { type: String, default: '' },
+    state: { type: String, default: '' },
+    country: { type: String, default: '' },
+    postalCode: { type: String, default: '' },
+    formattedAddress: { type: String, default: '' },
+    placeId: { type: String, default: '' },
+    lastUpdated: { type: Date, default: null }
   },
   profilePicture: {
     type: String,
@@ -170,6 +159,8 @@ const userSchema = new mongoose.Schema({
 // Note: email index is automatically created by unique: true
 userSchema.index({ role: 1 });
 userSchema.index({ createdAt: -1 });
+// Geospatial index on location
+userSchema.index({ location: '2dsphere' });
 
 // Virtual for user's full name
 userSchema.virtual('fullName').get(function() {

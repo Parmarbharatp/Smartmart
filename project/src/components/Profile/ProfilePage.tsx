@@ -6,9 +6,10 @@ import UserProfile from './UserProfile';
 import ShopProfile from './ShopProfile';
 
 const ProfilePage: React.FC = () => {
-  const { user } = useAuth();
+  const { user: authUser } = useAuth();
   const [activeTab, setActiveTab] = useState<'user' | 'shop'>('user');
   const [shop, setShop] = useState<any>(null);
+  const [currentUser, setCurrentUser] = useState<any>(authUser);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -19,29 +20,26 @@ const ProfilePage: React.FC = () => {
   const loadUserData = async () => {
     try {
       setIsLoading(true);
-      console.log('ProfilePage: Starting to load user data...');
-      
-      // Load current user data
-      const currentUser = await apiService.getCurrentUser();
-      console.log('ProfilePage: Current user loaded:', currentUser);
-      
-      // If user is a shop owner, load their shop data
-      if (currentUser.role === 'shop_owner') {
+      // Load current user data from backend to ensure fresh values
+      const apiUser = await apiService.getCurrentUser();
+      setCurrentUser(apiUser);
+
+      // If user is a shop owner, load their shop data (non-blocking for profile)
+      if (apiUser.role === 'shop_owner') {
         try {
-          console.log('ProfilePage: User is shop owner, loading shop data...');
           const myShop = await apiService.getMyShop();
-          console.log('ProfilePage: Shop data loaded:', myShop);
           if (myShop) {
             setShop(myShop);
-            setActiveTab('shop'); // Default to shop tab for shop owners
+            // keep default tab as personal info
           }
         } catch (shopError) {
-          console.log('ProfilePage: No shop found for this user:', shopError);
+          // Do not fail profile if shop fetch fails
+          console.log('ProfilePage: Shop load failed or not found:', shopError);
         }
       }
-      console.log('ProfilePage: User data loading completed successfully');
-    } catch (error) {
-      console.error('ProfilePage: Error loading user data:', error);
+      setError('');
+    } catch (err: any) {
+      console.error('ProfilePage: Error loading user data:', err);
       setError('Failed to load profile data');
     } finally {
       setIsLoading(false);
@@ -78,7 +76,7 @@ const ProfilePage: React.FC = () => {
     );
   }
 
-  if (!user) {
+  if (!currentUser) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -125,7 +123,7 @@ const ProfilePage: React.FC = () => {
               <User className="mr-2 h-4 w-4" />
               Personal Information
             </button>
-            {user.role === 'shop_owner' && shop && (
+            {currentUser.role === 'shop_owner' && shop && (
               <button
                 onClick={() => setActiveTab('shop')}
                 className={`flex items-center px-1 py-2 border-b-2 font-medium text-sm ${
@@ -144,7 +142,7 @@ const ProfilePage: React.FC = () => {
         {/* Tab Content */}
         <div className="bg-white rounded-lg shadow">
           {activeTab === 'user' && (
-            <UserProfile user={user} />
+            <UserProfile user={currentUser} />
           )}
           {activeTab === 'shop' && shop && (
             <ShopProfile shop={shop} isOwner={true} />

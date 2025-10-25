@@ -20,8 +20,29 @@ interface AuthResponse {
     profilePicture?: string;
     createdAt: string;
     updatedAt: string;
+    location?: GeoPoint;
+    locationDetails?: LocationDetails;
   };
   token: string;
+}
+
+// GeoJSON Point
+interface GeoPoint {
+  type: 'Point';
+  coordinates: [number, number]; // [lng, lat]
+}
+
+interface LocationDetails {
+  address: string;
+  houseNumber?: string;
+  street?: string;
+  city: string;
+  state: string;
+  country: string;
+  postalCode?: string;
+  formattedAddress: string;
+  placeId?: string;
+  lastUpdated?: string | null;
 }
 
 interface User {
@@ -32,35 +53,20 @@ interface User {
   phoneNumber?: string;
   address?: string;
   profilePicture?: string;
-  location?: {
-    coordinates: {
-      lat: number;
-      lng: number;
-    };
-    address: string;
-    city: string;
-    state: string;
-    country: string;
-    postalCode?: string;
-    formattedAddress: string;
-    placeId?: string;
-    lastUpdated: string;
-  };
+  location?: GeoPoint;
+  locationDetails?: LocationDetails;
   createdAt: string;
   updatedAt: string;
 }
 
 interface LocationData {
-  coordinates: {
-    lat: number;
-    lng: number;
-  };
-  address: string;
-  city: string;
-  state: string;
-  country: string;
+  coordinates: { lat: number; lng: number };
+  address?: string;
+  city?: string;
+  state?: string;
+  country?: string;
   postalCode?: string;
-  formattedAddress: string;
+  formattedAddress?: string;
   placeId?: string;
 }
 
@@ -116,6 +122,9 @@ class ApiService {
 
       if (!response.ok) {
         const error = new Error(data.message || `HTTP error! status: ${response.status}`);
+        // Attach common API error metadata if available for better UI surfacing
+        (error as any).status = response.status;
+        (error as any).errors = data.errors || data.data?.errors || null;
         (error as any).field = data.field;
         throw error;
       }
@@ -178,6 +187,15 @@ class ApiService {
 
   async getCurrentUser(): Promise<User> {
     const response = await this.request<User>('/auth/me');
+    // backend returns { data: { user } }
+    return (response as any).data!.user ?? (response as any).data!;
+  }
+
+  async updateProfile(updates: Partial<Pick<User, 'name' | 'phoneNumber' | 'address'>>): Promise<User> {
+    const response = await this.request<User>('/auth/update-profile', {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    });
     return response.data!;
   }
 
@@ -296,6 +314,34 @@ class ApiService {
     return res.data?.order;
   }
 
+  async getShopOwnerOrders(params: { page?: number; limit?: number; status?: string } = {}): Promise<{ orders: any[]; total: number }> {
+    const q = new URLSearchParams();
+    if (params.page) q.set('page', String(params.page));
+    if (params.limit) q.set('limit', String(params.limit));
+    if (params.status) q.set('status', params.status);
+    const res = await this.request<any>(`/orders${q.toString() ? `?${q.toString()}` : ''}`);
+    return { orders: res.data?.orders ?? [], total: res.data?.pagination?.total ?? 0 };
+  }
+
+  async getOrderStatsSummary(params: { dateFrom?: string; dateTo?: string; shopId?: string } = {}): Promise<any> {
+    const q = new URLSearchParams();
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params.dateTo) q.set('dateTo', params.dateTo);
+    if (params.shopId) q.set('shopId', params.shopId);
+    const res = await this.request<any>(`/orders/stats/summary${q.toString() ? `?${q.toString()}` : ''}`);
+    return res.data?.stats ?? null;
+  }
+
+  async getOrderTimeSeries(params: { period?: 'week' | 'month' | 'year'; dateFrom?: string; dateTo?: string; shopId?: string } = {}): Promise<{ series: any[]; period: string } | null> {
+    const q = new URLSearchParams();
+    if (params.period) q.set('period', params.period);
+    if (params.dateFrom) q.set('dateFrom', params.dateFrom);
+    if (params.dateTo) q.set('dateTo', params.dateTo);
+    if (params.shopId) q.set('shopId', params.shopId);
+    const res = await this.request<any>(`/orders/stats/timeseries${q.toString() ? `?${q.toString()}` : ''}`);
+    return res.data ?? null;
+  }
+
   async getMyOrders(params: { page?: number; limit?: number; status?: string } = {}): Promise<{ orders: any[]; total: number }> {
     const q = new URLSearchParams();
     if (params.page) q.set('page', String(params.page));
@@ -303,6 +349,65 @@ class ApiService {
     if (params.status) q.set('status', params.status);
     const res = await this.request<any>(`/orders${q.toString() ? `?${q.toString()}` : ''}`);
     return { orders: res.data?.orders ?? [], total: res.data?.pagination?.total ?? 0 };
+  }
+
+  // ============ Delivery Boy APIs ============
+  async getAvailableOrders(params: { page?: number; limit?: number } = {}): Promise<{ orders: any[]; total: number }> {
+    try {
+      const q = new URLSearchParams();
+      if (params.page) q.set('page', String(params.page));
+      if (params.limit) q.set('limit', String(params.limit));
+      const res = await this.request<any>(`/orders/available-for-delivery${q.toString() ? `?${q.toString()}` : ''}`);
+      console.log('🔍 API Response for available orders:', res);
+      return { orders: res.data?.orders ?? [], total: res.data?.pagination?.total ?? 0 };
+    } catch (e) {
+      console.error('❌ Error fetching available orders:', e);
+      // Treat backend errors as empty list so Delivery Dashboard doesn't break
+      return { orders: [], total: 0 };
+    }
+  }
+
+  async acceptDelivery(orderId: string): Promise<any> {
+    const res = await this.request<any>(`/orders/${orderId}/accept-delivery`, {
+      method: 'PUT',
+    });
+    return res.data?.order;
+  }
+
+  async updateDeliveryStatus(orderId: string, deliveryStatus: string, notes?: string): Promise<any> {
+    const res = await this.request<any>(`/orders/${orderId}/update-delivery-status`, {
+      method: 'PUT',
+      body: JSON.stringify({ deliveryStatus, notes }),
+    });
+    return res.data?.order;
+  }
+
+  async makeOrderAvailableForDelivery(orderId: string): Promise<any> {
+    const res = await this.request<any>(`/orders/${orderId}/make-available-for-delivery`, {
+      method: 'PUT',
+    });
+    return res.data?.order;
+  }
+
+  async getOrderDetails(orderId: string): Promise<any> {
+    const res = await this.request<any>(`/orders/${orderId}/details`, {
+      method: 'GET',
+    });
+    return res.data;
+  }
+
+  async updatePaymentStatus(orderId: string, paymentStatus: string, paymentId?: string): Promise<any> {
+    const res = await this.request<any>(`/orders/${orderId}/update-payment-status`, {
+      method: 'PUT',
+      body: JSON.stringify({ paymentStatus, paymentId }),
+    });
+    return res.data?.order;
+  }
+
+  // Debug method to check all orders
+  async getAllOrdersDebug(): Promise<any[]> {
+    const res = await this.request<any>('/orders/debug/all');
+    return res.data?.orders ?? [];
   }
 
   async createProduct(payload: {
@@ -413,16 +518,18 @@ class ApiService {
   }
 
   // ============ Location ============
-  async updateUserLocation(locationData: LocationData): Promise<{ location: any }> {
-    const response = await this.request<{ location: any }>('/auth/update-location', {
+  async updateUserLocation(locationData: LocationData): Promise<{ location: GeoPoint; locationDetails: LocationDetails }>
+  {
+    const response = await this.request<{ location: GeoPoint; locationDetails: LocationDetails }>('/auth/update-location', {
       method: 'PUT',
       body: JSON.stringify(locationData),
     });
     return response.data!;
   }
 
-  async getUserLocation(): Promise<{ location: any }> {
-    const response = await this.request<{ location: any }>('/auth/location');
+  async getUserLocation(): Promise<{ location: GeoPoint; locationDetails: LocationDetails }>
+  {
+    const response = await this.request<{ location: GeoPoint; locationDetails: LocationDetails }>('/auth/location');
     return response.data!;
   }
 
@@ -456,10 +563,83 @@ class ApiService {
     const response = await this.request<{ locationTracking: any }>('/auth/location-tracking-preferences');
     return response.data!;
   }
+
+  // ============ AI Services ============
+  async generateProductDescription(data: {
+    productName: string;
+    category?: string;
+    features?: string[];
+    currentDescription?: string;
+  }): Promise<{ description: string; fallback?: boolean; message?: string }> {
+    const response = await this.request<{
+      description: string;
+      fallback?: boolean;
+      message?: string;
+    }>('/ai/generate-description', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+    return response.data!;
+  }
+
+  async analyzeProductImage(imageFile: File, productName?: string, category?: string): Promise<{
+    analysis: string;
+    description: string;
+    tags: string[];
+    imageProcessed: boolean;
+  }> {
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    if (productName) formData.append('productName', productName);
+    if (category) formData.append('category', category);
+
+    const url = `${this.baseURL}/ai/analyze-image`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': this.token ? `Bearer ${this.token}` : '',
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.data;
+  }
+
+  async generateDescriptionFromImage(imageFile: File, productName?: string): Promise<{
+    description: string;
+    imageProcessed: boolean;
+    fallback?: boolean;
+    message?: string;
+  }> {
+    const formData = new FormData();
+    formData.append('image', imageFile);
+    if (productName) formData.append('productName', productName);
+
+    const url = `${this.baseURL}/ai/generate-from-image`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'Authorization': this.token ? `Bearer ${this.token}` : '',
+      },
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP error! status: ${response.status}`);
+    }
+
+    const data = await response.json();
+    return data.data;
+  }
 }
 
 // Create and export singleton instance
 export const apiService = new ApiService();
 
 // Export types for use in components
-export type { ApiResponse, AuthResponse, User, LocationData };
+export type { ApiResponse, AuthResponse, User, LocationData, GeoPoint, LocationDetails };

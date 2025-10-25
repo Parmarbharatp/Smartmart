@@ -289,7 +289,7 @@ const Header: React.FC = () => {
                           {user.name}
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 capitalize">
-                          {user.role.replace('_', ' ')}
+                          {(user.role || 'customer').replace('_', ' ')}
                         </div>
                       </div>
                       <ChevronDown className={`h-4 w-4 transition-transform duration-300 text-gray-500 dark:text-gray-400 ${
@@ -320,7 +320,7 @@ const Header: React.FC = () => {
                                   ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300'
                                   : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
                               } capitalize`}>
-                                {user.role.replace('_', ' ')}
+                                {(user.role || 'customer').replace('_', ' ')}
                               </span>
                             </div>
                           </div>
@@ -506,7 +506,7 @@ const Header: React.FC = () => {
                     </div>
                     <div>
                       <p className="font-semibold text-gray-900 dark:text-gray-100">{user.name}</p>
-                      <p className="text-sm text-gray-600 dark:text-gray-400 capitalize">{user.role.replace('_', ' ')}</p>
+                      <p className="text-sm text-gray-600 dark:text-gray-400 capitalize">{(user.role || 'customer').replace('_', ' ')}</p>
                     </div>
                   </div>
                   

@@ -45,42 +45,64 @@ const ProductManagement: React.FC<ProductManagementProps> = ({ shop, products, o
   };
 
   const handleFormSubmit = async (product: Product) => {
-    if (editingProduct) {
-      await apiService.updateProduct(product.id, {
-        productName: product.productName,
-        description: product.description,
-        price: product.price,
-        stockQuantity: product.stockQuantity,
-        categoryId: product.categoryId,
-        imageUrls: product.imageUrls,
-      });
-    } else {
-      await apiService.createProduct({
-        productName: product.productName,
-        description: product.description,
-        price: product.price,
-        stockQuantity: product.stockQuantity,
-        categoryId: product.categoryId,
-        imageUrls: product.imageUrls,
-      });
+    try {
+      if (editingProduct) {
+        await apiService.updateProduct(product.id, {
+          productName: product.productName,
+          description: product.description,
+          price: product.price,
+          stockQuantity: product.stockQuantity,
+          categoryId: product.categoryId,
+          imageUrls: product.imageUrls,
+        });
+      } else {
+        await apiService.createProduct({
+          productName: product.productName,
+          description: product.description,
+          price: product.price,
+          stockQuantity: product.stockQuantity,
+          categoryId: product.categoryId,
+          imageUrls: product.imageUrls,
+        });
+      }
+      const refreshed = await apiService.getShopProducts({ shopId: shop.id, limit: 100 });
+      const normalized: Product[] = refreshed.map((p: any) => ({
+        id: p._id,
+        shopId: String(p.shopId),
+        categoryId: String(p.categoryId),
+        productName: p.productName,
+        description: p.description,
+        price: p.price,
+        stockQuantity: p.stockQuantity,
+        imageUrls: p.imageUrls ?? [],
+        status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
+        createdAt: p.createdAt,
+        updatedAt: p.updatedAt,
+      }));
+      onProductsUpdated(normalized);
+      setShowAddForm(false);
+      setEditingProduct(null);
+    } catch (e: any) {
+      const serverErrors = e?.errors as Array<{ msg?: string; param?: string }>|undefined;
+      const status = e?.status;
+      let message = e?.message || 'Failed to save product. Please try again.';
+
+      // If backend provided validation errors, format them
+      if (serverErrors && serverErrors.length > 0) {
+        const details = serverErrors
+          .map(err => (err.param ? `${err.param}: ${err.msg || 'invalid'}` : (err.msg || 'invalid')))
+          .join('\n');
+        message = `${message}${details ? `\n\nDetails:\n${details}` : ''}`;
+      } else if (status === 403) {
+        message = 'You are not allowed to perform this action. Please ensure you are logged in as a shop owner.';
+      } else if (status === 404) {
+        message = 'Required resource not found. Ensure your shop exists and selected category is valid.';
+      } else if (status === 409) {
+        message = 'A product with this name already exists in your shop. Please use a different name.';
+      }
+
+      alert(message);
     }
-    const refreshed = await apiService.getShopProducts({ shopId: shop.id, limit: 100 });
-    const normalized: Product[] = refreshed.map((p: any) => ({
-      id: p._id,
-      shopId: String(p.shopId),
-      categoryId: String(p.categoryId),
-      productName: p.productName,
-      description: p.description,
-      price: p.price,
-      stockQuantity: p.stockQuantity,
-      imageUrls: p.imageUrls ?? [],
-      status: p.status === 'out_of_stock' ? 'out_of_stock' : 'available',
-      createdAt: p.createdAt,
-      updatedAt: p.updatedAt,
-    }));
-    onProductsUpdated(normalized);
-    setShowAddForm(false);
-    setEditingProduct(null);
   };
 
   return (
@@ -154,7 +176,7 @@ const ProductManagement: React.FC<ProductManagementProps> = ({ shop, products, o
               <h4 className="font-medium text-gray-900 mb-2">{product.productName}</h4>
               <p className="text-sm text-gray-600 mb-2 line-clamp-2">{product.description}</p>
               <div className="flex items-center justify-between mb-4">
-                <span className="text-lg font-bold text-blue-600">${product.price}</span>
+                <span className="text-lg font-bold text-blue-600">₹{product.price}</span>
                 <span className="text-sm text-gray-500">{product.stockQuantity} in stock</span>
               </div>
               <div className="flex space-x-2">
@@ -204,6 +226,7 @@ const ProductForm: React.FC<{
   onCancel: () => void;
 }> = ({ shop, product, onSubmit, onCancel }) => {
   const [categories, setCategories] = useState<Category[]>([]);
+  const [categoriesAreFallback, setCategoriesAreFallback] = useState(false);
   React.useEffect(() => {
     (async () => {
       try {
@@ -223,8 +246,10 @@ const ProductForm: React.FC<{
             { id: '68bea582d67a9f688b8ba042', name: 'Home & Garden', description: 'Home improvement and garden supplies', isBuiltIn: true, createdAt: new Date().toISOString() },
             { id: '68bea582d67a9f688b8ba043', name: 'Food & Beverages', description: 'Food products and beverages', isBuiltIn: true, createdAt: new Date().toISOString() },
           ]);
+          setCategoriesAreFallback(true);
         } else {
           setCategories(mapped);
+          setCategoriesAreFallback(false);
         }
       } catch (e) {
         console.error('Failed to load categories', e);
@@ -235,6 +260,7 @@ const ProductForm: React.FC<{
           { id: '68bea582d67a9f688b8ba042', name: 'Home & Garden', description: 'Home improvement and garden supplies', isBuiltIn: true, createdAt: new Date().toISOString() },
           { id: '68bea582d67a9f688b8ba043', name: 'Food & Beverages', description: 'Food products and beverages', isBuiltIn: true, createdAt: new Date().toISOString() },
         ]);
+        setCategoriesAreFallback(true);
       }
     })();
   }, []);
@@ -286,22 +312,22 @@ const ProductForm: React.FC<{
       newErrors.categoryId = 'Please select a category';
     }
 
-    // Image validation
-    if (formData.imageFiles.length === 0) {
-      newErrors.imageFiles = 'At least one product image is required';
-    } else {
-      formData.imageFiles.forEach((file, index) => {
-        if (file) {
-          const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
-          const maxSize = 5 * 1024 * 1024; // 5MB
-
-          if (!allowedTypes.includes(file.type)) {
-            newErrors.imageFiles = `Image ${index + 1} must be a valid image file (JPEG, PNG, or WebP)`;
-          } else if (file.size > maxSize) {
-            newErrors.imageFiles = `Image ${index + 1} file size must be less than 5MB`;
-          }
+    // Image validation (optional). If provided, validate type/size
+    formData.imageFiles.forEach((file, index) => {
+      if (file) {
+        const allowedTypes = ['image/jpeg', 'image/jpg', 'image/png', 'image/webp'];
+        const maxSize = 5 * 1024 * 1024; // 5MB
+        if (!allowedTypes.includes(file.type)) {
+          newErrors.imageFiles = `Image ${index + 1} must be a valid image file (JPEG, PNG, or WebP)`;
+        } else if (file.size > maxSize) {
+          newErrors.imageFiles = `Image ${index + 1} file size must be less than 5MB`;
         }
-      });
+      }
+    });
+
+    // If categories are fallback, block submit and prompt user
+    if (categoriesAreFallback) {
+      newErrors.categoryId = 'No categories available. Ask admin to add categories first.';
     }
 
     setErrors(newErrors);
@@ -498,7 +524,9 @@ const ProductForm: React.FC<{
         {/* AI Assistant */}
         <AIAssistant
           productName={formData.productName}
+          category={categories.find(c => c.id === formData.categoryId)?.name || ''}
           features={[]}
+          currentDescription={formData.description}
           onDescriptionGenerated={(description) => 
             handleInputChange('description', description)
           }
@@ -507,7 +535,7 @@ const ProductForm: React.FC<{
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label htmlFor="price" className="block text-sm font-medium text-gray-700 mb-2">
-              Price ($) *
+              Price (₹) *
             </label>
             <input
               type="number"

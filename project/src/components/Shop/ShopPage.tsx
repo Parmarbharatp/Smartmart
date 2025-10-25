@@ -164,7 +164,7 @@ const ShopPage: React.FC = () => {
       </div>
 
       {/* Shop Location */}
-      {shop.location && (
+      {false && shop.location && (
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="bg-white rounded-lg shadow-lg p-6">
             <div className="flex items-center justify-between mb-6">
@@ -173,56 +173,7 @@ const ShopPage: React.FC = () => {
                 Shop Location
               </h2>
             </div>
-            
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-              <div className="space-y-4">
-                <div>
-                  <label className="text-sm font-medium text-gray-600">Full Address</label>
-                  <p className="text-gray-900">{shop.location.formattedAddress || shop.address}</p>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <label className="text-sm font-medium text-gray-600">City</label>
-                    <p className="text-gray-900">{shop.location.city || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-600">State</label>
-                    <p className="text-gray-900">{shop.location.state || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-600">Country</label>
-                    <p className="text-gray-900">{shop.location.country || 'N/A'}</p>
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium text-gray-600">Postal Code</label>
-                    <p className="text-gray-900">{shop.location.postalCode || 'N/A'}</p>
-                  </div>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-gray-600">Coordinates</label>
-                  <p className="text-gray-900 font-mono text-sm">
-                    {typeof shop.location.coordinates?.lat === 'number' && typeof shop.location.coordinates?.lng === 'number'
-                      ? `${shop.location.coordinates.lat.toFixed(6)}, ${shop.location.coordinates.lng.toFixed(6)}`
-                      : 'N/A'}
-                  </p>
-                </div>
-              </div>
-              
-              <div className="bg-gray-100 rounded-lg p-6 flex items-center justify-center">
-                <div className="text-center">
-                  <Navigation className="h-12 w-12 text-gray-400 mx-auto mb-4" />
-                  <p className="text-gray-500 mb-2">Interactive Map</p>
-                  <p className="text-sm text-gray-400">
-                    Map view would be displayed here
-                  </p>
-                  <p className="text-xs text-gray-400 mt-2">
-                    {typeof shop.location.coordinates?.lat === 'number' && typeof shop.location.coordinates?.lng === 'number'
-                      ? `${shop.location.coordinates.lat.toFixed(4)}, ${shop.location.coordinates.lng.toFixed(4)}`
-                      : 'N/A'}
-                  </p>
-                </div>
-              </div>
-            </div>
+            {/* hidden for now */}
           </div>
         </div>
       )}

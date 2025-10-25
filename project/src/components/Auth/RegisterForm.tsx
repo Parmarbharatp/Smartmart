@@ -57,36 +57,18 @@ const RegisterForm: React.FC = () => {
       return { isValid: false, error: 'Email is required' };
     }
     
-    // Check if email starts with a letter or number
-    if (!/^[a-zA-Z0-9]/.test(trimmedEmail)) {
-      return { isValid: false, error: 'Email must start with a letter or number' };
-    }
-    
-    // Check if email contains @ symbol
-    if (!trimmedEmail.includes('@')) {
-      return { isValid: false, error: 'Email must contain @ symbol' };
-    }
-    
     // Check if email has valid format
     const emailRegex = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$/;
     if (!emailRegex.test(trimmedEmail)) {
       return { isValid: false, error: 'Please enter a valid email address' };
     }
     
-    // Check for common invalid patterns
-    if (trimmedEmail.includes('..') || trimmedEmail.includes('@@')) {
-      return { isValid: false, error: 'Email contains invalid characters' };
-    }
-    
-    // Check if domain has valid TLD
-    const domainPart = trimmedEmail.split('@')[1];
-    if (domainPart && domainPart.split('.').length < 2) {
-      return { isValid: false, error: 'Email domain is invalid' };
-    }
-    
-    // Check email length
-    if (trimmedEmail.length > 254) {
-      return { isValid: false, error: 'Email is too long (max 254 characters)' };
+    // If email starts with a number, it must contain at least one letter
+    const localPart = trimmedEmail.split('@')[0];
+    if (/^[0-9]/.test(localPart)) {
+      if (!/[a-zA-Z]/.test(localPart)) {
+        return { isValid: false, error: 'Email starting with numbers must contain at least one letter' };
+      }
     }
     
     return { isValid: true, error: '' };

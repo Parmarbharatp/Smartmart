@@ -158,7 +158,7 @@ const CartPage: React.FC = () => {
                           {item.product ? item.product.productName : 'Loading...'}
                         </h3>
                         <p className="text-sm text-gray-500 mt-1">
-                          {item.product ? `$${item.product.price.toFixed(2)} each` : ''}
+                          {item.product ? `₹${item.product.price.toFixed(2)} each` : ''}
                         </p>
                         {item.product && item.quantity > item.product.stockQuantity && (
                           <p className="text-sm text-red-600 mt-1 font-medium">
@@ -205,7 +205,7 @@ const CartPage: React.FC = () => {
                         </button>
                       </div>
                       <div className="text-sm font-medium text-gray-900">
-                        {item.product ? `$${(item.product.price * item.quantity).toFixed(2)}` : '--'}
+                        {item.product ? `₹${(item.product.price * item.quantity).toFixed(2)}` : '--'}
                       </div>
                       <button
                         onClick={() => removeFromCart(item.productId)}
@@ -226,7 +226,7 @@ const CartPage: React.FC = () => {
                 <div className="space-y-2 mb-4">
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Subtotal</span>
-                    <span className="text-gray-900">${getCartTotal().toFixed(2)}</span>
+                    <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Shipping</span>
@@ -234,14 +234,14 @@ const CartPage: React.FC = () => {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Tax</span>
-                    <span className="text-gray-900">$0.00</span>
+                    <span className="text-gray-900">₹0.00</span>
                   </div>
                 </div>
                 
                 <div className="border-t border-gray-200 pt-4 mb-6">
                   <div className="flex justify-between text-base font-medium">
                     <span className="text-gray-900">Total</span>
-                    <span className="text-gray-900">${getCartTotal().toFixed(2)}</span>
+                    <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
                   </div>
                 </div>
 

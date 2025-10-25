@@ -31,7 +31,7 @@ const SimpleProfilePage: React.FC = () => {
           console.log('SimpleProfilePage: Shop data loaded:', myShop);
           if (myShop) {
             setShop(myShop);
-            setActiveTab('shop'); // Default to shop tab for shop owners
+            // Keep default tab as 'user'; do not auto-switch
           }
         } catch (shopError) {
           console.log('SimpleProfilePage: No shop found for this user:', shopError);
@@ -175,21 +175,37 @@ const SimpleProfilePage: React.FC = () => {
                       <MapPin className="mr-2 h-5 w-5" />
                       Location Information
                     </h3>
-                    {user.location ? (
+                    {user.locationDetails ? (
                       <div className="space-y-3">
                         <div>
                           <label className="text-sm font-medium text-gray-600">Current Location</label>
-                          <p className="text-gray-900">{user.location.formattedAddress}</p>
+                          <p className="text-gray-900">{user.locationDetails.formattedAddress}</p>
                         </div>
                         <div className="grid grid-cols-2 gap-4">
                           <div>
+                            <label className="text-sm font-medium text-gray-600">House/Flat No.</label>
+                            <p className="text-gray-900">{user.locationDetails.houseNumber || 'N/A'}</p>
+                          </div>
+                          <div>
+                            <label className="text-sm font-medium text-gray-600">Street</label>
+                            <p className="text-gray-900">{user.locationDetails.street || 'N/A'}</p>
+                          </div>
+                          <div>
                             <label className="text-sm font-medium text-gray-600">City</label>
-                            <p className="text-gray-900">{user.location.city || 'N/A'}</p>
+                            <p className="text-gray-900">{user.locationDetails.city || 'N/A'}</p>
                           </div>
                           <div>
                             <label className="text-sm font-medium text-gray-600">State</label>
-                            <p className="text-gray-900">{user.location.state || 'N/A'}</p>
+                            <p className="text-gray-900">{user.locationDetails.state || 'N/A'}</p>
                           </div>
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium text-gray-600">Coordinates</label>
+                          <p className="text-gray-900 font-mono text-sm">
+                            {Array.isArray(user.location?.coordinates) && user.location.coordinates.length === 2
+                              ? `${user.location.coordinates[1].toFixed(6)}, ${user.location.coordinates[0].toFixed(6)}`
+                              : 'N/A'}
+                          </p>
                         </div>
                       </div>
                     ) : (

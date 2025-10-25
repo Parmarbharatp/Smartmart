@@ -15,6 +15,8 @@ type GeocodingResult = {
 type LocationDetails = {
   coordinates: LatLng;
   address: string;
+  houseNumber?: string;
+  street?: string;
   city: string;
   state: string;
   country: string;
@@ -123,6 +125,8 @@ export async function getLocationDetails(latlng: LatLng): Promise<LocationDetail
     const state = address.state || address.region || address.province || '';
     const country = address.country || '';
     const postalCode = address.postcode || '';
+    const houseNumber = address.house_number || '';
+    const street = address.road || '';
     
     // Build address string from available components
     let addressString = '';
@@ -138,6 +142,8 @@ export async function getLocationDetails(latlng: LatLng): Promise<LocationDetail
     return {
       coordinates: { lat: parseFloat(results.lat), lng: parseFloat(results.lon) },
       address: addressString.trim(),
+      houseNumber,
+      street,
       city,
       state,
       country,

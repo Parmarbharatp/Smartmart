@@ -1,306 +1,234 @@
-import { getCurrentLocationWithDetails, type LocationDetails } from './location';
+import { getCurrentLocationWithDetails, LocationDetails } from './location';
 import { apiService } from './api';
 
-export interface LocationTrackingConfig {
-  enabled: boolean;
-  updateInterval: number; // in milliseconds
-  highAccuracy: boolean;
-  timeout: number; // in milliseconds
-  maximumAge: number; // in milliseconds
-}
-
-export interface LocationTrackingState {
+export type LocationTrackingState = {
   isTracking: boolean;
   lastUpdate: Date | null;
   lastKnownLocation: LocationDetails | null;
   error: string | null;
   permissionStatus: PermissionState | null;
-}
+};
 
-class LocationTrackingService {
-  private config: LocationTrackingConfig = {
-    enabled: false,
-    updateInterval: 5 * 60 * 1000, // 5 minutes
-    highAccuracy: true,
-    timeout: 10000, // 10 seconds
-    maximumAge: 2 * 60 * 1000 // 2 minutes
-  };
+export type LocationTrackingConfig = {
+  enabled: boolean;
+  updateInterval: number;
+  highAccuracy: boolean;
+  timeout: number;
+  maximumAge: number;
+};
 
-  private state: LocationTrackingState = {
-    isTracking: false,
-    lastUpdate: null,
-    lastKnownLocation: null,
-    error: null,
-    permissionStatus: null
-  };
-
-  private intervalId: NodeJS.Timeout | null = null;
-  private listeners: Set<(state: LocationTrackingState) => void> = new Set();
+export class LocationTrackingService {
+  private state: LocationTrackingState;
+  private config: LocationTrackingConfig;
+  private listeners: Array<(state: LocationTrackingState) => void> = [];
+  private timerId: any = null;
 
   constructor() {
-    console.log('LocationTrackingService: Initializing...');
-    this.checkPermissionStatus();
+    this.state = {
+      isTracking: false,
+      lastUpdate: null,
+      lastKnownLocation: null,
+      error: null,
+      permissionStatus: null,
+    };
+    this.config = {
+      enabled: false,
+      updateInterval: 5 * 60 * 1000,
+      highAccuracy: true,
+      timeout: 10000,
+      maximumAge: 2 * 60 * 1000,
+    };
   }
 
-  // Check geolocation permission status
-  private async checkPermissionStatus(): Promise<void> {
-    if ('permissions' in navigator) {
-      try {
-        const permission = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-        this.state.permissionStatus = permission.state;
-        this.notifyListeners();
-      } catch (error) {
-        console.warn('Could not check geolocation permission:', error);
-      }
-    }
+  // ---- Public getters ----
+  getState(): LocationTrackingState {
+    return this.state;
   }
 
-  // Request location permission
+  getConfig(): LocationTrackingConfig {
+    return this.config;
+  }
+
+  isSupported(): boolean {
+    return typeof navigator !== 'undefined' && 'geolocation' in navigator;
+  }
+
+  // ---- Subscription ----
+  subscribe(listener: (state: LocationTrackingState) => void): () => void {
+    this.listeners.push(listener);
+    listener(this.state);
+    return () => {
+      this.listeners = this.listeners.filter(l => l !== listener);
+    };
+  }
+
+  private notifyListeners() {
+    this.listeners.forEach(l => l(this.state));
+  }
+
+  // ---- Permission helpers ----
   async requestPermission(): Promise<boolean> {
     try {
-      const position = await this.getCurrentPosition();
+      if (!this.isSupported()) {
+        this.state.error = 'Geolocation not supported';
+        this.notifyListeners();
+        return false;
+      }
+
+      // Use Permissions API if available
+      if ((navigator as any).permissions?.query) {
+        try {
+          const status = await (navigator as any).permissions.query({ name: 'geolocation' as PermissionName });
+          this.state.permissionStatus = status.state as PermissionState;
+          if (status.state === 'granted') return true;
+        } catch {
+          // ignore
+        }
+      }
+
+      // Trigger a one-time position request to prompt
+      await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: this.config.highAccuracy,
+          timeout: this.config.timeout,
+          maximumAge: this.config.maximumAge,
+        });
+      });
+
+      // If we got here, permission granted
       this.state.permissionStatus = 'granted';
       this.state.error = null;
       this.notifyListeners();
       return true;
-    } catch (error) {
+    } catch (e: any) {
       this.state.permissionStatus = 'denied';
-      this.state.error = error instanceof Error ? error.message : 'Permission denied';
+      this.state.error = e?.message || 'Permission denied';
       this.notifyListeners();
       return false;
     }
   }
 
-  // Get current position with error handling
-  private getCurrentPosition(): Promise<GeolocationPosition> {
-    return new Promise((resolve, reject) => {
-      if (!('geolocation' in navigator)) {
-        reject(new Error('Geolocation not supported'));
-        return;
-      }
-
-      navigator.geolocation.getCurrentPosition(
-        resolve,
-        reject,
-        {
-          enableHighAccuracy: this.config.highAccuracy,
-          timeout: this.config.timeout,
-          maximumAge: this.config.maximumAge
-        }
-      );
-    });
-  }
-
-  // Update user location in backend
-  private async updateUserLocation(locationDetails: LocationDetails): Promise<void> {
-    try {
-      await apiService.updateUserLocation({
-        coordinates: locationDetails.coordinates,
-        address: locationDetails.address,
-        city: locationDetails.city,
-        state: locationDetails.state,
-        country: locationDetails.country,
-        postalCode: locationDetails.postalCode,
-        formattedAddress: locationDetails.formattedAddress,
-        placeId: locationDetails.placeId
-      });
-
-      this.state.lastUpdate = new Date();
-      this.state.lastKnownLocation = locationDetails;
-      this.state.error = null;
-      this.notifyListeners();
-    } catch (error) {
-      console.error('Failed to update user location:', error);
-      this.state.error = error instanceof Error ? error.message : 'Failed to update location';
-      this.notifyListeners();
-    }
-  }
-
-  // Get current location and update user profile
-  private async updateLocation(): Promise<void> {
-    try {
-      const locationDetails = await getCurrentLocationWithDetails();
-      
-      if (locationDetails) {
-        await this.updateUserLocation(locationDetails);
-      } else {
-        this.state.error = 'Could not get location details';
-        this.notifyListeners();
-      }
-    } catch (error) {
-      console.error('Location update failed:', error);
-      this.state.error = error instanceof Error ? error.message : 'Location update failed';
-      this.notifyListeners();
-    }
-  }
-
-  // Start automatic location tracking
+  // ---- Tracking controls ----
   async startTracking(): Promise<boolean> {
-    if (this.state.isTracking) {
-      return true;
-    }
+    const permitted = await this.requestPermission();
+    if (!permitted) return false;
 
-    // Check if we have permission
-    if (this.state.permissionStatus === 'denied') {
-      this.state.error = 'Location permission denied';
-      this.notifyListeners();
-      return false;
-    }
-
-    // Request permission if not granted
-    if (this.state.permissionStatus !== 'granted') {
-      const hasPermission = await this.requestPermission();
-      if (!hasPermission) {
-        return false;
-      }
-    }
-
-    this.config.enabled = true;
+    if (this.timerId) return true; // already running
     this.state.isTracking = true;
-    this.state.error = null;
-
-    // Update location immediately
-    await this.updateLocation();
-
-    // Set up periodic updates
-    this.intervalId = setInterval(() => {
-      this.updateLocation();
-    }, this.config.updateInterval);
-
     this.notifyListeners();
+
+    await this.updateLocationNow();
+    this.timerId = setInterval(() => this.updateLocationNow(), this.config.updateInterval);
     return true;
   }
 
-  // Stop automatic location tracking
   stopTracking(): void {
-    if (this.intervalId) {
-      clearInterval(this.intervalId);
-      this.intervalId = null;
+    if (this.timerId) {
+      clearInterval(this.timerId);
+      this.timerId = null;
     }
-
-    this.config.enabled = false;
     this.state.isTracking = false;
     this.notifyListeners();
   }
 
-  // Update configuration
-  updateConfig(newConfig: Partial<LocationTrackingConfig>): void {
-    this.config = { ...this.config, ...newConfig };
-    
-    // Restart tracking if interval changed and tracking is active
-    if (this.state.isTracking && newConfig.updateInterval) {
-      this.stopTracking();
-      this.startTracking();
+  async updateLocationNow(): Promise<boolean> {
+    try {
+      const details = await getCurrentLocationWithDetails();
+      if (!details) {
+        this.state.error = 'Could not get location details';
+        this.notifyListeners();
+        return false;
+      }
+
+      await apiService.updateUserLocation({
+        coordinates: details.coordinates,
+        address: details.address,
+        houseNumber: details.houseNumber,
+        street: details.street,
+        city: details.city,
+        state: details.state,
+        country: details.country,
+        postalCode: details.postalCode,
+        formattedAddress: details.formattedAddress,
+        placeId: details.placeId,
+      });
+
+      this.state.lastKnownLocation = details;
+      this.state.lastUpdate = new Date();
+      this.state.error = null;
+      this.notifyListeners();
+      return true;
+    } catch (e: any) {
+      this.state.error = e?.message || 'Location update failed';
+      this.notifyListeners();
+      return false;
     }
   }
 
-  // Sync preferences with backend
+  updateConfig(newConfig: Partial<LocationTrackingConfig>): void {
+    const prevInterval = this.config.updateInterval;
+    this.config = { ...this.config, ...newConfig };
+    if (this.timerId && newConfig.updateInterval && newConfig.updateInterval !== prevInterval) {
+      clearInterval(this.timerId);
+      this.timerId = setInterval(() => this.updateLocationNow(), this.config.updateInterval);
+    }
+  }
+
+  // ---- Backend preference sync ----
   async syncPreferencesWithBackend(): Promise<void> {
     try {
-      const response = await apiService.getLocationTrackingPreferences();
-      if (response.locationTracking) {
-        const prefs = response.locationTracking;
-        this.config = {
-          enabled: prefs.enabled || false,
-          updateInterval: prefs.updateInterval || 5 * 60 * 1000,
-          highAccuracy: prefs.highAccuracy !== undefined ? prefs.highAccuracy : true,
-          timeout: this.config.timeout,
-          maximumAge: this.config.maximumAge
-        };
-        
-        // Update tracking state if preferences changed
-        if (prefs.enabled && !this.state.isTracking) {
-          await this.startTracking();
-        } else if (!prefs.enabled && this.state.isTracking) {
-          this.stopTracking();
+      const resp = await apiService.getLocationTrackingPreferences();
+      if (resp?.locationTracking) {
+        this.updateConfig({
+          enabled: !!resp.locationTracking.enabled,
+          updateInterval: resp.locationTracking.updateInterval ?? this.config.updateInterval,
+          highAccuracy: resp.locationTracking.highAccuracy ?? this.config.highAccuracy,
+        });
+        if (resp.locationTracking.enabled && !this.state.isTracking) {
+          // start without prompting again; let update fail if no permission
+          this.startTracking();
         }
-        
-        this.notifyListeners();
       }
-    } catch (error) {
-      console.error('Failed to sync preferences with backend:', error);
+    } catch {
+      // ignore
     }
   }
 
-  // Save preferences to backend
   async savePreferencesToBackend(): Promise<void> {
     try {
       await apiService.updateLocationTrackingPreferences({
         enabled: this.config.enabled,
         updateInterval: this.config.updateInterval,
-        highAccuracy: this.config.highAccuracy
+        highAccuracy: this.config.highAccuracy,
       });
-    } catch (error) {
-      console.error('Failed to save preferences to backend:', error);
-      throw error;
+    } catch {
+      // ignore
     }
   }
 
-  // Get current state
-  getState(): LocationTrackingState {
-    return { ...this.state };
-  }
-
-  // Get current configuration
-  getConfig(): LocationTrackingConfig {
-    return { ...this.config };
-  }
-
-  // Subscribe to state changes
-  subscribe(listener: (state: LocationTrackingState) => void): () => void {
-    this.listeners.add(listener);
-    return () => this.listeners.delete(listener);
-  }
-
-  // Notify all listeners of state changes
-  private notifyListeners(): void {
-    this.listeners.forEach(listener => listener(this.getState()));
-  }
-
-  // Manual location update
-  async updateLocationNow(): Promise<boolean> {
-    if (!this.state.isTracking) {
-      return false;
-    }
-
-    await this.updateLocation();
-    return true;
-  }
-
-  // Check if location tracking is supported
-  isSupported(): boolean {
-    return 'geolocation' in navigator;
-  }
-
-  // Get user's last known location from backend
-  async getLastKnownLocation(): Promise<LocationDetails | null> {
+  async getLastKnownLocation(): Promise<void> {
     try {
-      const response = await apiService.getUserLocation();
-      if (response.location && response.location.coordinates) {
-        const locationDetails: LocationDetails = {
-          coordinates: response.location.coordinates,
-          address: response.location.address || '',
-          city: response.location.city || '',
-          state: response.location.state || '',
-          country: response.location.country || '',
-          postalCode: response.location.postalCode || '',
-          formattedAddress: response.location.formattedAddress || '',
-          placeId: response.location.placeId || ''
+      const resp = await apiService.getUserLocation();
+      if (resp && resp.location && resp.locationDetails) {
+        const [lng, lat] = resp.location.coordinates;
+        this.state.lastKnownLocation = {
+          coordinates: { lat, lng },
+          address: resp.locationDetails.address || '',
+          city: resp.locationDetails.city || '',
+          state: resp.locationDetails.state || '',
+          country: resp.locationDetails.country || '',
+          postalCode: resp.locationDetails.postalCode || '',
+          formattedAddress: resp.locationDetails.formattedAddress || '',
+          placeId: resp.locationDetails.placeId || undefined,
         };
-        
-        this.state.lastKnownLocation = locationDetails;
-        this.state.lastUpdate = response.location.lastUpdated ? new Date(response.location.lastUpdated) : null;
+        this.state.lastUpdate = resp.locationDetails.lastUpdated ? new Date(resp.locationDetails.lastUpdated) : null;
+        this.state.error = null;
         this.notifyListeners();
-        
-        return locationDetails;
       }
-      return null;
-    } catch (error) {
-      console.error('Failed to get last known location:', error);
-      return null;
+    } catch {
+      // ignore
     }
   }
 }
 
-// Create and export singleton instance
 export const locationTrackingService = new LocationTrackingService();

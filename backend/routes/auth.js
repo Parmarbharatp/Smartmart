@@ -33,9 +33,13 @@ const validateRegistration = [
     .normalizeEmail()
     .withMessage('Please provide a valid email')
     .custom((value) => {
-      // Must start with a letter
-      if (!/^[a-zA-Z]/.test(value)) {
-        throw new Error('Email must start with a letter');
+      const localPart = value.split('@')[0];
+      
+      // If email starts with a number, it must contain at least one letter
+      if (/^[0-9]/.test(localPart)) {
+        if (!/[a-zA-Z]/.test(localPart)) {
+          throw new Error('Email starting with numbers must contain at least one letter');
+        }
       }
       return true;
     }),
@@ -53,6 +57,9 @@ const validateRegistration = [
     .isLength({ min: 11 })
     .withMessage('Address must be more than 10 characters')
     .custom((value) => {
+      if (!value || typeof value !== 'string') {
+        throw new Error('Address is required for customers');
+      }
       if (!/[a-zA-Z]/.test(value.trim())) {
         throw new Error('Address must contain meaningful content (letters)');
       }
@@ -63,7 +70,7 @@ const validateRegistration = [
     .notEmpty()
     .withMessage('Driving license number is required for delivery boys')
     .custom((value) => {
-      if (!value) {
+      if (!value || typeof value !== 'string') {
         throw new Error('Driving license number is required for delivery boys');
       }
       
@@ -87,6 +94,33 @@ const validateRegistration = [
 const validateLogin = [
   body('email').isEmail().normalizeEmail().withMessage('Please provide a valid email'),
   body('password').notEmpty().withMessage('Password is required')
+];
+
+// Update profile validators
+const validateProfileUpdate = [
+  body('name')
+    .optional()
+    .trim()
+    .isLength({ min: 2, max: 50 })
+    .withMessage('Name must be between 2 and 50 characters')
+    .matches(/^[a-zA-Z\s\-']+$/)
+    .withMessage('Name can only contain letters, spaces, hyphens, and apostrophes')
+    .custom((value) => {
+      const trimmedValue = (value || '').trim();
+      if (trimmedValue && (trimmedValue.length < 2 || !/[a-zA-Z]/.test(trimmedValue))) {
+        throw new Error('Name must contain actual characters (not just spaces)');
+      }
+      return true;
+    }),
+  body('phoneNumber')
+    .optional()
+    .matches(/^\d{10}$/)
+    .withMessage('Phone number must be exactly 10 digits'),
+  body('address')
+    .optional()
+    .isString()
+    .isLength({ max: 200 })
+    .withMessage('Address is too long')
 ];
 
 // @route   POST /api/auth/register
@@ -555,11 +589,15 @@ router.post('/check-email', async (req, res) => {
 router.put('/update-location', verifyToken, [
   body('coordinates.lat').isFloat({ min: -90, max: 90 }).withMessage('Valid latitude required'),
   body('coordinates.lng').isFloat({ min: -180, max: 180 }).withMessage('Valid longitude required'),
-  body('address').notEmpty().withMessage('Address is required'),
-  body('city').notEmpty().withMessage('City is required'),
-  body('state').notEmpty().withMessage('State is required'),
-  body('country').notEmpty().withMessage('Country is required'),
-  body('formattedAddress').notEmpty().withMessage('Formatted address is required')
+  body('address').optional().isString(),
+  body('houseNumber').optional().isString().isLength({ max: 100 }).withMessage('House/flat number is too long'),
+  body('street').optional().isString().isLength({ max: 150 }).withMessage('Street/society is too long'),
+  body('city').optional().isString(),
+  body('state').optional().isString(),
+  body('country').optional().isString(),
+  body('postalCode').optional().isString(),
+  body('formattedAddress').optional().isString(),
+  body('placeId').optional().isString()
 ], async (req, res) => {
   try {
     const errors = validationResult(req);
@@ -574,6 +612,8 @@ router.put('/update-location', verifyToken, [
     const {
       coordinates,
       address,
+      houseNumber,
+      street,
       city,
       state,
       country,
@@ -582,21 +622,28 @@ router.put('/update-location', verifyToken, [
       placeId
     } = req.body;
 
-    const user = await User.findById(req.user.id);
-    if (!user) {
-      return res.status(404).json({
-        status: 'error',
-        message: 'User not found'
-      });
+    const lat = Number(coordinates?.lat);
+    const lng = Number(coordinates?.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return res.status(400).json({ status: 'error', message: 'Invalid coordinates' });
     }
 
-    // Update location data
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ status: 'error', message: 'User not found' });
+    }
+
+    // Save as GeoJSON Point [lng, lat]
     user.location = {
-      coordinates: {
-        lat: coordinates.lat,
-        lng: coordinates.lng
-      },
+      type: 'Point',
+      coordinates: [lng, lat]
+    };
+
+    // Save human-readable details separately
+    user.locationDetails = {
       address: address || '',
+      houseNumber: houseNumber || '',
+      street: street || '',
       city: city || '',
       state: state || '',
       country: country || '',
@@ -612,7 +659,8 @@ router.put('/update-location', verifyToken, [
       status: 'success',
       message: 'Location updated successfully',
       data: {
-        location: user.location
+        location: user.location,
+        locationDetails: user.locationDetails
       }
     });
 
@@ -630,7 +678,7 @@ router.put('/update-location', verifyToken, [
 // @access  Private
 router.get('/location', verifyToken, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('location');
+    const user = await User.findById(req.user.id).select('location locationDetails');
     
     if (!user) {
       return res.status(404).json({
@@ -642,7 +690,8 @@ router.get('/location', verifyToken, async (req, res) => {
     res.status(200).json({
       status: 'success',
       data: {
-        location: user.location
+        location: user.location,
+        locationDetails: user.locationDetails
       }
     });
 
@@ -652,6 +701,46 @@ router.get('/location', verifyToken, async (req, res) => {
       status: 'error',
       message: 'Internal server error while fetching location'
     });
+  }
+});
+
+// @route   PUT /api/auth/update-profile
+// @desc    Update current user's profile fields
+// @access  Private
+router.put('/update-profile', verifyToken, validateProfileUpdate, async (req, res) => {
+  try {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        status: 'error',
+        message: 'Validation failed',
+        errors: errors.array()
+      });
+    }
+
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ status: 'error', message: 'User not found' });
+    }
+
+    const { name, phoneNumber, address } = req.body;
+    if (typeof name === 'string') user.name = name.trim();
+    if (typeof phoneNumber === 'string') user.phoneNumber = phoneNumber.trim();
+    if (typeof address === 'string') user.address = address.trim();
+    user.updatedAt = new Date();
+
+    const saved = await user.save();
+    const userResponse = saved.toObject();
+    delete userResponse.password;
+
+    res.status(200).json({
+      status: 'success',
+      message: 'Profile updated successfully',
+      data: { user: userResponse }
+    });
+  } catch (error) {
+    console.error('Update profile error:', error);
+    res.status(500).json({ status: 'error', message: 'Internal server error while updating profile' });
   }
 });
 

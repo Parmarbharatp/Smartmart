@@ -480,10 +480,10 @@ const HomePage: React.FC = () => {
                   <div className="flex items-center justify-between mb-4">
                     <div>
                       <span className="price-current">
-                        ${product.price}
+                        ₹{product.price}
                       </span>
                       <span className="price-original ml-2">
-                        ${(product.price * 1.2).toFixed(2)}
+                        ₹{(product.price * 1.2).toFixed(2)}
                       </span>
                     </div>
                     <span className="price-discount">

@@ -333,7 +333,7 @@ const OverviewTab: React.FC<{
               <p className="font-medium text-gray-900">Order #{order.id}</p>
               <p className="text-sm text-gray-600">{new Date(order.orderDate).toLocaleDateString()}</p>
             </div>
-            <span className="font-medium text-green-600">${order.totalAmount.toFixed(2)}</span>
+            <span className="font-medium text-green-600">₹{order.totalAmount.toFixed(2)}</span>
           </div>
         ))}
       </div>
@@ -526,7 +526,7 @@ const ProductsTab: React.FC<{
             <p className="text-sm text-gray-600 mb-2">{shop?.shopName}</p>
             <p className="text-sm text-gray-500 mb-2">{category?.name}</p>
             <div className="flex justify-between items-center mb-2">
-              <span className="text-lg font-bold text-blue-600">${product.price}</span>
+              <span className="text-lg font-bold text-blue-600">₹{product.price}</span>
               <span className="text-sm text-gray-500">{product.stockQuantity} in stock</span>
             </div>
             <button
@@ -579,7 +579,7 @@ const OrdersTab: React.FC<{
                 }`}>
                   {order.status}
                 </span>
-                <span className="text-lg font-bold text-gray-900">${order.totalAmount.toFixed(2)}</span>
+                <span className="text-lg font-bold text-gray-900">₹{order.totalAmount.toFixed(2)}</span>
               </div>
             </div>
             <p className="text-sm text-gray-600 mb-2">
@@ -622,7 +622,7 @@ const DeliveryManagementTab: React.FC<{
                 <div key={order.id} className="border border-gray-200 rounded-lg p-4">
                   <div className="flex items-center justify-between mb-2">
                     <h5 className="font-medium text-gray-900">Order #{order.id}</h5>
-                    <span className="text-sm font-bold text-gray-900">${order.totalAmount.toFixed(2)}</span>
+                    <span className="text-sm font-bold text-gray-900">₹{order.totalAmount.toFixed(2)}</span>
                   </div>
                   <p className="text-sm text-gray-600 mb-3">
                     {customer?.name} • {order.shippingAddress}

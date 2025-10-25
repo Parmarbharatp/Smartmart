@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useLocationTracking } from '../../contexts/LocationTrackingContext';
 import { MapPin, Clock, Shield, AlertTriangle } from 'lucide-react';
 
@@ -12,7 +12,7 @@ export function LocationTrackingSettings({ className = '' }: LocationTrackingSet
     state,
     config,
     startTracking,
-    stopTracking,
+    // stopTracking,
     updateLocationNow,
     updateConfig,
     requestPermission,
@@ -23,33 +23,25 @@ export function LocationTrackingSettings({ className = '' }: LocationTrackingSet
   const [isUpdating, setIsUpdating] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
 
-  const handleToggleTracking = async () => {
-    if (state.isTracking) {
-      stopTracking();
-      // Save preferences to backend
-      try {
-        await savePreferencesToBackend();
-      } catch (error) {
-        console.error('Failed to save preferences:', error);
-      }
-    } else {
-      setIsUpdating(true);
-      try {
-        const success = await startTracking();
-        if (success) {
-          // Save preferences to backend
-          await savePreferencesToBackend();
-        }
-      } finally {
-        setIsUpdating(false);
-      }
-    }
-  };
+  // Removed toggle path in favor of single primary action
 
-  const handleUpdateLocation = async () => {
+  // Removed separate manual update; consolidated into one button
+
+  const handleAllowAndGetLocation = async () => {
     setIsUpdating(true);
     try {
+      if (state.permissionStatus !== 'granted') {
+        const granted = await requestPermission();
+        if (!granted) {
+          setIsUpdating(false);
+          return;
+        }
+      }
+      if (!state.isTracking) {
+        await startTracking();
+      }
       await updateLocationNow();
+      await savePreferencesToBackend();
     } finally {
       setIsUpdating(false);
     }
@@ -154,29 +146,15 @@ export function LocationTrackingSettings({ className = '' }: LocationTrackingSet
         )}
       </div>
 
-      {/* Tracking Toggle */}
+      {/* Single Primary Action */}
       <div className="mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <h4 className="text-sm font-medium text-gray-900">Automatic Location Tracking</h4>
-            <p className="text-sm text-gray-500">
-              Automatically update your location every {config.updateInterval / (1000 * 60)} minutes
-            </p>
-          </div>
-          <button
-            onClick={handleToggleTracking}
-            disabled={isUpdating || state.permissionStatus === 'denied'}
-            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-              state.isTracking ? 'bg-blue-600' : 'bg-gray-200'
-            } ${isUpdating || state.permissionStatus === 'denied' ? 'opacity-50 cursor-not-allowed' : ''}`}
-          >
-            <span
-              className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                state.isTracking ? 'translate-x-6' : 'translate-x-1'
-              }`}
-            />
-          </button>
-        </div>
+        <button
+          onClick={handleAllowAndGetLocation}
+          disabled={isUpdating}
+          className="w-full bg-blue-600 text-white px-4 py-3 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isUpdating ? 'Updating location…' : (state.permissionStatus === 'granted' ? 'Get Current Location' : 'Allow & Get Current Location')}
+        </button>
       </div>
 
       {/* Current Location Info */}
@@ -193,26 +171,7 @@ export function LocationTrackingSettings({ className = '' }: LocationTrackingSet
         </div>
       )}
 
-      {/* Manual Update Button */}
-      <div className="mb-6">
-        <button
-          onClick={handleUpdateLocation}
-          disabled={isUpdating || !state.isTracking}
-          className="w-full bg-blue-600 text-white px-4 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
-        >
-          {isUpdating ? (
-            <>
-              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-              <span>Updating...</span>
-            </>
-          ) : (
-            <>
-              <MapPin className="h-4 w-4" />
-              <span>Update Location Now</span>
-            </>
-          )}
-        </button>
-      </div>
+      {/* Manual Update removed in favor of single primary action */}
 
       {/* Error Display */}
       {state.error && (
@@ -278,8 +237,7 @@ export function LocationTrackingSettings({ className = '' }: LocationTrackingSet
             <h4 className="text-sm font-medium text-blue-900">Privacy & Security</h4>
             <p className="text-sm text-blue-700 mt-1">
               Your location data is stored securely and only used to provide location-based services. 
-              You can disable tracking at any time. Location updates use OpenStreetMap (Nominatim) 
-              which is free and doesn't require an API key.
+              You can disable tracking at any time. 
             </p>
           </div>
         </div>

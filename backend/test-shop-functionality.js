@@ -46,7 +46,7 @@ const testShopFunctionality = async () => {
           
           if (productsData.data.products.length > 0) {
             const firstProduct = productsData.data.products[0];
-            console.log(`🛍️ First product: ${firstProduct.productName} - $${firstProduct.price}`);
+            console.log(`🛍️ First product: ${firstProduct.productName} - ₹${firstProduct.price}`);
           }
         } else {
           console.log('❌ Failed to fetch shop products:', productsData.message);

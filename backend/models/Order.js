@@ -232,7 +232,13 @@ orderSchema.statics.getOrderStats = function(filters = {}) {
         _id: null,
         totalOrders: { $sum: 1 },
         totalRevenue: { $sum: '$totalAmount' },
-        averageOrderValue: { $avg: '$totalAmount' }
+        averageOrderValue: { $avg: '$totalAmount' },
+        pendingCount: { $sum: { $cond: [{ $eq: ['$status', 'pending'] }, 1, 0] } },
+        confirmedCount: { $sum: { $cond: [{ $eq: ['$status', 'confirmed'] }, 1, 0] } },
+        shippedCount: { $sum: { $cond: [{ $eq: ['$status', 'shipped'] }, 1, 0] } },
+        deliveredCount: { $sum: { $cond: [{ $eq: ['$status', 'delivered'] }, 1, 0] } },
+        cancelledCount: { $sum: { $cond: [{ $eq: ['$status', 'cancelled'] }, 1, 0] } },
+        refundedCount: { $sum: { $cond: [{ $eq: ['$status', 'refunded'] }, 1, 0] } }
       }
     }
   ]);
@@ -267,6 +273,20 @@ orderSchema.methods.calculateTotal = function() {
   
   this.totalAmount = itemsTotal + this.shippingCost + this.taxAmount - this.discountAmount;
   return this.totalAmount;
+};
+
+// Instance method to mark payment as completed when delivery is successful
+orderSchema.methods.completePaymentOnDelivery = function() {
+  if (this.status === 'delivered' && this.paymentStatus === 'pending') {
+    this.paymentStatus = 'paid';
+    return this.save();
+  }
+  return Promise.resolve(this);
+};
+
+// Instance method to check if order is fully completed (delivered and paid)
+orderSchema.methods.isFullyCompleted = function() {
+  return this.status === 'delivered' && this.paymentStatus === 'paid';
 };
 
 const Order = mongoose.model('Order', orderSchema);

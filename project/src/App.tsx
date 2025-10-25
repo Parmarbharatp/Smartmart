@@ -24,7 +24,6 @@ import AdminDashboard from './components/Admin/AdminDashboard';
 import ShopDashboard from './components/Shop/ShopDashboard';
 import DeliveryDashboard from './components/Delivery/DeliveryDashboard';
 import ProfilePage from './components/Profile/ProfilePage';
-import SimpleProfilePage from './components/Profile/SimpleProfilePage';
 import ProfileTest from './components/Test/ProfileTest';
 import ErrorBoundary from './components/ErrorBoundary';
 
@@ -65,7 +64,7 @@ function App() {
                         <Route path="/admin" element={<AdminDashboard />} />
                         <Route path="/shop-dashboard" element={<ShopDashboard />} />
                         <Route path="/delivery-dashboard" element={<DeliveryDashboard />} />
-                        <Route path="/profile" element={<ErrorBoundary><SimpleProfilePage /></ErrorBoundary>} />
+                        <Route path="/profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
                       </Routes>
                     </main>
                     <Footer />
@@ -101,7 +100,7 @@ function App() {
                       <Route path="/admin" element={<AdminDashboard />} />
                       <Route path="/shop-dashboard" element={<ShopDashboard />} />
                       <Route path="/delivery-dashboard" element={<DeliveryDashboard />} />
-                      <Route path="/profile" element={<ErrorBoundary><SimpleProfilePage /></ErrorBoundary>} />
+                      <Route path="/profile" element={<ErrorBoundary><ProfilePage /></ErrorBoundary>} />
                     </Routes>
                   </main>
                   <Footer />

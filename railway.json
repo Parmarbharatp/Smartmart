@@ -1,7 +1,12 @@
 {
-  "build": {
-    "root": "backend",
-    "buildCommand": "npm install",
-    "startCommand": "npm start"
-  }
+  "$schema": "https://docs.railway.app/schemas/railway.schema.json",
+  "services": [
+    {
+      "name": "smartmart-backend",
+      "rootPath": "backend", 
+      "buildCommand": "npm install",
+      "startCommand": "npm start",
+      "port": 3000 
+    }
+  ]
 }

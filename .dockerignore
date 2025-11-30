@@ -1,0 +1,75 @@
+# Frontend (not needed for backend deployment)
+project/
+project/dist/
+project/node_modules/
+
+# Backend dependencies (will be installed in container)
+backend/node_modules/
+backend/package-lock.json
+
+# Environment files (use Google Cloud secrets instead)
+backend/config.env
+backend/.env
+backend/.env.local
+backend/.env.*.local
+config.env
+.env
+.env.local
+.env.*.local
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+*~
+
+# Test files
+backend/*.test.js
+backend/test-*.js
+backend/*-test.js
+backend/simple-test.js
+backend/test-api.js
+backend/test-auth.js
+backend/test-registration-endpoint.js
+backend/test-shop-functionality.js
+backend/test-stock-validation.js
+backend/test-user-model.js
+backend/test-validation.js
+backend/debug-registration.js
+
+# Documentation
+*.md
+README.md
+backend/README.md
+backend/MONGODB_ATLAS_SETUP.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs
+*.log
+backend/logs
+
+# Temporary files
+tmp
+temp
+backend/uploads/temp/*
+
+# Build artifacts
+dist
+build
+project/dist
+project/build
+
+# Other deployment configs
+railway.json
+start-smartmart.bat
+backend/start.bat
+

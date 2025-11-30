@@ -1,21 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
-import { Package, Truck, CheckCircle, Clock, AlertTriangle, MapPin, Phone, Eye, CheckCircle2, XCircle } from 'lucide-react';
+import { Package, Truck, CheckCircle, Clock, AlertTriangle, MapPin, Phone, Eye, CheckCircle2, XCircle, Wallet, TrendingUp, ArrowDownCircle, ArrowUpCircle } from 'lucide-react';
 import { apiService } from '../../services/api';
 
 const DeliveryDashboard: React.FC = () => {
   const { user } = useAuth();
   const [assignedOrders, setAssignedOrders] = useState<any[]>([]);
   const [availableOrders, setAvailableOrders] = useState<any[]>([]);
-  const [activeTab, setActiveTab] = useState<'available' | 'active' | 'history'>('available');
+  const [activeTab, setActiveTab] = useState<'available' | 'active' | 'history' | 'wallet'>('available');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [walletBalance, setWalletBalance] = useState<any>(null);
+  const [transactions, setTransactions] = useState<any[]>([]);
+  const [walletLoading, setWalletLoading] = useState(false);
+  const [payouts, setPayouts] = useState<any[]>([]);
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
 
   useEffect(() => {
     if (user && user.role === 'delivery_boy') {
       loadOrders();
+      loadWallet();
     }
   }, [user]);
+
+  useEffect(() => {
+    // Reload wallet when tab changes to wallet or when orders are updated
+    if (activeTab === 'wallet' || assignedOrders.length > 0) {
+      loadWallet();
+    }
+  }, [activeTab, assignedOrders.length]);
 
   const loadOrders = async () => {
     setLoading(true);
@@ -88,10 +101,35 @@ const DeliveryDashboard: React.FC = () => {
       setLoading(true);
       await apiService.updateDeliveryStatus(orderId, status, notes);
       await loadOrders(); // Reload orders
+      // Reload wallet if delivery was successful (money will be credited)
+      if (status === 'delivered') {
+        setTimeout(() => {
+          loadWallet(); // Small delay to allow backend to process revenue split
+        }, 2000);
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to update delivery status');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadWallet = async () => {
+    setWalletLoading(true);
+    try {
+      const [balanceData, transactionsData, payoutsData] = await Promise.all([
+        apiService.getWalletBalance(),
+        apiService.getWalletTransactions({ limit: 20 }),
+        apiService.getMyPayouts({ limit: 20 })
+      ]);
+      setWalletBalance(balanceData);
+      setTransactions(transactionsData.transactions || []);
+      setPayouts(payoutsData.payouts || []);
+    } catch (err: any) {
+      console.error('Error loading wallet:', err);
+      setError(err.message || 'Failed to load wallet information');
+    } finally {
+      setWalletLoading(false);
     }
   };
 
@@ -157,7 +195,19 @@ const DeliveryDashboard: React.FC = () => {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+          <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-sm p-6 text-white">
+            <div className="flex items-center">
+              <Wallet className="h-8 w-8 text-white" />
+              <div className="ml-4">
+                <p className="text-sm text-green-100">Wallet Balance</p>
+                <p className="text-2xl font-bold text-white">
+                  ₹{walletBalance?.balance?.toFixed(2) || '0.00'}
+                </p>
+              </div>
+            </div>
+          </div>
+          
           <div className="bg-white rounded-lg shadow-sm p-6">
             <div className="flex items-center">
               <Eye className="h-8 w-8 text-blue-600" />
@@ -244,6 +294,20 @@ const DeliveryDashboard: React.FC = () => {
               >
                 Delivery History ({completedOrders.length})
               </button>
+              <button
+                onClick={() => {
+                  setActiveTab('wallet');
+                  loadWallet();
+                }}
+                className={`py-4 px-2 border-b-2 font-medium text-sm ${
+                  activeTab === 'wallet'
+                    ? 'border-green-500 text-green-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                <Wallet className="h-4 w-4 inline mr-2" />
+                My Wallet
+              </button>
             </nav>
           </div>
 
@@ -319,8 +383,294 @@ const DeliveryDashboard: React.FC = () => {
                 )}
               </div>
             )}
+
+            {activeTab === 'wallet' && (
+              <WalletView
+                walletBalance={walletBalance}
+                transactions={transactions}
+                payouts={payouts}
+                loading={walletLoading}
+                onRefresh={loadWallet}
+                onRequestPayout={() => {
+                  console.log('Opening payout modal, balance:', walletBalance);
+                  if (!walletBalance?.balance || walletBalance.balance < 100) {
+                    alert(`You need at least ₹100 in your wallet to request a payout. Current balance: ₹${walletBalance?.balance?.toFixed(2) || '0.00'}`);
+                    return;
+                  }
+                  setShowPayoutModal(true);
+                }}
+              />
+            )}
           </div>
         </div>
+      </div>
+
+      {/* Payout Request Modal */}
+      {showPayoutModal && (
+        <PayoutRequestModal
+          walletBalance={walletBalance}
+          onClose={() => setShowPayoutModal(false)}
+          onSuccess={() => {
+            setShowPayoutModal(false);
+            loadWallet();
+          }}
+        />
+      )}
+    </div>
+  );
+};
+
+// Payout Request Modal Component
+const PayoutRequestModal: React.FC<{
+  walletBalance: any;
+  onClose: () => void;
+  onSuccess: () => void;
+}> = ({ walletBalance, onClose, onSuccess }) => {
+  const [payoutMethod, setPayoutMethod] = useState<'upi' | 'bank_transfer'>('upi');
+  const [amount, setAmount] = useState('');
+  const [upiId, setUpiId] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankAccountName, setBankAccountName] = useState('');
+  const [bankIFSC, setBankIFSC] = useState('');
+  const [bankName, setBankName] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      console.log('Submitting payout request:', { amount, payoutMethod, walletBalance });
+      const payoutAmount = parseFloat(amount);
+      
+      if (!payoutAmount || payoutAmount <= 0) {
+        setError('Please enter a valid amount');
+        setLoading(false);
+        return;
+      }
+
+      if (payoutAmount < 100) {
+        setError('Minimum payout amount is ₹100');
+        setLoading(false);
+        return;
+      }
+
+      if (walletBalance?.balance < payoutAmount) {
+        setError('Insufficient wallet balance');
+        setLoading(false);
+        return;
+      }
+
+      const payload: any = {
+        amount: payoutAmount,
+        payoutMethod: payoutMethod
+      };
+
+      if (payoutMethod === 'upi') {
+        if (!upiId) {
+          setError('Please enter UPI ID');
+          setLoading(false);
+          return;
+        }
+        payload.upiId = upiId;
+      } else {
+        if (!bankAccountNumber || !bankAccountName || !bankIFSC || !bankName) {
+          setError('Please fill all bank details');
+          setLoading(false);
+          return;
+        }
+        payload.bankAccountNumber = bankAccountNumber;
+        payload.bankAccountName = bankAccountName;
+        payload.bankIFSC = bankIFSC;
+        payload.bankName = bankName;
+      }
+
+      const response = await apiService.requestPayout(payload);
+      console.log('Payout request response:', response);
+      alert('Payout request submitted successfully! Admin will process it soon.');
+      onSuccess();
+    } catch (err: any) {
+      console.error('Payout request error:', err);
+      const errorMessage = err?.response?.data?.message || err?.message || 'Failed to request payout';
+      setError(errorMessage);
+      // Show more detailed error if available
+      if (err?.response?.data?.availableBalance !== undefined) {
+        setError(`${errorMessage}. Available balance: ₹${err.response.data.availableBalance.toFixed(2)}`);
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-xl max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h2 className="text-xl font-bold text-gray-900">Request Payout</h2>
+            <button
+              onClick={onClose}
+              className="text-gray-400 hover:text-gray-600"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+          {error && (
+            <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          {/* Amount */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Amount (₹)
+            </label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              min="100"
+              max={walletBalance?.balance || 0}
+              step="0.01"
+              required
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+              placeholder="Enter amount (min ₹100)"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Available balance: ₹{walletBalance?.balance?.toFixed(2) || '0.00'}
+            </p>
+          </div>
+
+          {/* Payout Method */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Payout Method
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                type="button"
+                onClick={() => setPayoutMethod('upi')}
+                className={`px-4 py-3 border-2 rounded-lg font-medium transition-colors ${
+                  payoutMethod === 'upi'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                UPI
+              </button>
+              <button
+                type="button"
+                onClick={() => setPayoutMethod('bank_transfer')}
+                className={`px-4 py-3 border-2 rounded-lg font-medium transition-colors ${
+                  payoutMethod === 'bank_transfer'
+                    ? 'border-green-500 bg-green-50 text-green-700'
+                    : 'border-gray-300 text-gray-700 hover:border-gray-400'
+                }`}
+              >
+                Bank Transfer
+              </button>
+            </div>
+          </div>
+
+          {/* UPI Details */}
+          {payoutMethod === 'upi' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                UPI ID
+              </label>
+              <input
+                type="text"
+                value={upiId}
+                onChange={(e) => setUpiId(e.target.value)}
+                required
+                className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                placeholder="yourname@upi"
+              />
+            </div>
+          )}
+
+          {/* Bank Details */}
+          {payoutMethod === 'bank_transfer' && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account Holder Name
+                </label>
+                <input
+                  type="text"
+                  value={bankAccountName}
+                  onChange={(e) => setBankAccountName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Enter account holder name"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Account Number
+                </label>
+                <input
+                  type="text"
+                  value={bankAccountNumber}
+                  onChange={(e) => setBankAccountNumber(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Enter account number"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  IFSC Code
+                </label>
+                <input
+                  type="text"
+                  value={bankIFSC}
+                  onChange={(e) => setBankIFSC(e.target.value.toUpperCase())}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="ABCD0123456"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Bank Name
+                </label>
+                <input
+                  type="text"
+                  value={bankName}
+                  onChange={(e) => setBankName(e.target.value)}
+                  required
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-green-500"
+                  placeholder="Enter bank name"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Submit Buttons */}
+          <div className="flex space-x-3 pt-4">
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex-1 px-4 py-2 border border-gray-300 text-gray-700 rounded-lg hover:bg-gray-50 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={loading}
+              className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {loading ? 'Submitting...' : 'Request Payout'}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
@@ -563,6 +913,247 @@ const DeliveryCard: React.FC<{
           )}
         </div>
       )}
+    </div>
+  );
+};
+
+// Wallet View Component
+const WalletView: React.FC<{
+  walletBalance: any;
+  transactions: any[];
+  payouts: any[];
+  loading: boolean;
+  onRefresh: () => void;
+  onRequestPayout: () => void;
+}> = ({ walletBalance, transactions, payouts, loading, onRefresh, onRequestPayout }) => {
+  const getTransactionIcon = (type: string, revenueType?: string) => {
+    if (type === 'credit' || revenueType === 'delivery_boy') {
+      return <ArrowDownCircle className="h-5 w-5 text-green-600" />;
+    }
+    return <ArrowUpCircle className="h-5 w-5 text-red-600" />;
+  };
+
+  const getTransactionColor = (type: string) => {
+    return type === 'credit' ? 'text-green-600' : 'text-red-600';
+  };
+
+  const formatDate = (date: string | Date) => {
+    return new Date(date).toLocaleString('en-IN', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  return (
+    <div className="space-y-6">
+      {/* Wallet Balance Card */}
+      <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg shadow-lg p-8 text-white">
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h2 className="text-2xl font-bold mb-2">Wallet Balance</h2>
+            <p className="text-green-100 text-sm">Your available earnings</p>
+          </div>
+          <Wallet className="h-12 w-12 text-white opacity-80" />
+        </div>
+        <div className="text-5xl font-bold mb-2">
+          ₹{walletBalance?.balance?.toFixed(2) || '0.00'}
+        </div>
+        <div className="grid grid-cols-3 gap-4 mt-6 pt-6 border-t border-green-400/30">
+          <div>
+            <p className="text-green-100 text-sm">Total Earnings</p>
+            <p className="text-xl font-semibold">₹{walletBalance?.totalEarnings?.toFixed(2) || '0.00'}</p>
+          </div>
+          <div>
+            <p className="text-green-100 text-sm">Pending</p>
+            <p className="text-xl font-semibold">₹{walletBalance?.pendingBalance?.toFixed(2) || '0.00'}</p>
+          </div>
+          <div>
+            <p className="text-green-100 text-sm">Withdrawn</p>
+            <p className="text-xl font-semibold">₹{walletBalance?.totalWithdrawn?.toFixed(2) || '0.00'}</p>
+          </div>
+        </div>
+        <div className="flex space-x-3 mt-4">
+          <button
+            onClick={onRefresh}
+            disabled={loading}
+            className="flex-1 bg-white text-green-600 px-4 py-2 rounded-lg font-medium hover:bg-green-50 transition-colors disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : 'Refresh Balance'}
+          </button>
+          <button
+            onClick={() => {
+              console.log('Request payout clicked');
+              console.log('Wallet balance:', walletBalance);
+              if (!walletBalance?.balance || walletBalance.balance < 100) {
+                alert(`Minimum ₹100 required for payout. Your current balance is ₹${walletBalance?.balance?.toFixed(2) || '0.00'}`);
+                return;
+              }
+              onRequestPayout();
+            }}
+            disabled={loading}
+            className="flex-1 bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-blue-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Request Payout
+            {walletBalance?.balance && walletBalance.balance < 100 && (
+              <span className="block text-xs mt-1 text-green-200">(Min ₹100)</span>
+            )}
+          </button>
+        </div>
+        {walletBalance?.balance < 100 && (
+          <p className="text-xs text-green-100 mt-2">
+            Minimum ₹100 required for payout
+          </p>
+        )}
+      </div>
+
+      {/* Transactions List */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Transaction History</h3>
+            <TrendingUp className="h-5 w-5 text-gray-400" />
+          </div>
+        </div>
+        
+        {loading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+            <p className="text-gray-600 mt-2">Loading transactions...</p>
+          </div>
+        ) : transactions.length === 0 ? (
+          <div className="p-8 text-center">
+            <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No transactions yet</h3>
+            <p className="text-gray-600">Your earnings from deliveries will appear here.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-200">
+            {transactions.map((transaction) => (
+              <div key={transaction._id} className="p-6 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center space-x-4 flex-1">
+                    <div className={`p-2 rounded-full ${
+                      transaction.transactionType === 'credit' ? 'bg-green-100' : 'bg-red-100'
+                    }`}>
+                      {getTransactionIcon(transaction.transactionType, transaction.revenueType)}
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900">
+                        {transaction.description || 
+                         (transaction.transactionType === 'credit' ? 'Credit' : 'Debit')}
+                      </h4>
+                      <p className="text-sm text-gray-500">
+                        {formatDate(transaction.createdAt)}
+                        {transaction.revenueType === 'delivery_boy' && (
+                          <span className="ml-2 px-2 py-0.5 bg-blue-100 text-blue-800 rounded text-xs">
+                            Delivery Fee
+                          </span>
+                        )}
+                        {transaction.orderId && (
+                          <span className="ml-2 text-gray-400">
+                            • Order #{transaction.order?.orderNumber || 'N/A'}
+                          </span>
+                        )}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className={`text-lg font-semibold ${getTransactionColor(transaction.transactionType)}`}>
+                      {transaction.transactionType === 'credit' ? '+' : '-'}₹{transaction.amount.toFixed(2)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      Balance: ₹{transaction.balanceAfter?.toFixed(2) || '0.00'}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Payout History */}
+      <div className="bg-white rounded-lg shadow-sm">
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex items-center justify-between">
+            <h3 className="text-lg font-semibold text-gray-900">Payout History</h3>
+            <Wallet className="h-5 w-5 text-gray-400" />
+          </div>
+        </div>
+        
+        {loading ? (
+          <div className="p-8 text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-green-600 mx-auto"></div>
+            <p className="text-gray-600 mt-2">Loading payouts...</p>
+          </div>
+        ) : payouts.length === 0 ? (
+          <div className="p-8 text-center">
+            <Wallet className="h-12 w-12 text-gray-400 mx-auto mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 mb-2">No payout requests</h3>
+            <p className="text-gray-600">Your payout requests will appear here.</p>
+          </div>
+        ) : (
+          <div className="divide-y divide-gray-200">
+            {payouts.map((payout) => (
+              <div key={payout._id} className="p-6 hover:bg-gray-50 transition-colors">
+                <div className="flex items-center justify-between">
+                  <div className="flex-1">
+                    <div className="flex items-center space-x-3 mb-2">
+                      <h4 className="font-medium text-gray-900">
+                        Payout #{payout.payoutId}
+                      </h4>
+                      <span className={`px-2 py-1 rounded-full text-xs font-medium ${
+                        payout.status === 'completed' ? 'bg-green-100 text-green-800' :
+                        payout.status === 'processing' ? 'bg-blue-100 text-blue-800' :
+                        payout.status === 'pending' ? 'bg-yellow-100 text-yellow-800' :
+                        payout.status === 'failed' ? 'bg-red-100 text-red-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {payout.status.charAt(0).toUpperCase() + payout.status.slice(1)}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-600 mb-1">
+                      Amount: <span className="font-semibold text-gray-900">₹{payout.amount.toFixed(2)}</span>
+                    </p>
+                    <p className="text-sm text-gray-500">
+                      Method: {payout.payoutMethod === 'upi' ? 'UPI' : 'Bank Transfer'}
+                      {payout.payoutMethod === 'upi' && payout.upiId && (
+                        <span className="ml-2">({payout.upiId})</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-1">
+                      Requested: {formatDate(payout.requestDate)}
+                      {payout.processedDate && (
+                        <span className="ml-2">
+                          • Processed: {formatDate(payout.processedDate)}
+                        </span>
+                      )}
+                    </p>
+                    {payout.transactionReference && (
+                      <p className="text-xs text-green-600 mt-1">
+                        Transaction ID: {payout.transactionReference}
+                      </p>
+                    )}
+                    {payout.failureReason && (
+                      <p className="text-xs text-red-600 mt-1">
+                        Reason: {payout.failureReason}
+                      </p>
+                    )}
+                  </div>
+                  <div className="text-right">
+                    <p className="text-lg font-semibold text-gray-900">
+                      ₹{payout.amount.toFixed(2)}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 };

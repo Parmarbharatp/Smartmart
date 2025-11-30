@@ -21,14 +21,7 @@ const PaymentPage: React.FC = () => {
   const [isProcessing, setIsProcessing] = useState(false);
   const [orderPlaced, setOrderPlaced] = useState(false);
   const [orderId, setOrderId] = useState('');
-  const RAZORPAY_KEY = (import.meta as any).env?.VITE_RAZORPAY_KEY || 'rzp_test_1234567890';
-  const [showMockCheckout, setShowMockCheckout] = useState(false);
-  const [mockTab, setMockTab] = useState<'upi' | 'card' | 'wallet'>('upi');
-  const [upiId, setUpiId] = useState('');
-  const [cardName, setCardName] = useState('');
-  const [cardNumber, setCardNumber] = useState('');
-  const [cardExpiry, setCardExpiry] = useState('');
-  const [cardCvv, setCardCvv] = useState('');
+  const RAZORPAY_KEY = import.meta.env.VITE_RAZORPAY_KEY_ID || 'rzp_test_1234567890';
 
   const products = JSON.parse(localStorage.getItem('products') || '[]');
   const cartProducts = items.map(item => ({
@@ -71,15 +64,142 @@ const PaymentPage: React.FC = () => {
     return true;
   };
 
-  const handleRazorpayPayment = () => {
+  const handleRazorpayPayment = async () => {
     if (!validatePayment()) {
       return;
     }
     
     setIsProcessing(true);
-    // Always use mock checkout in this build (no external keys needed)
-    setShowMockCheckout(true);
-    setIsProcessing(false);
+    
+    try {
+      // First, create the order
+      if (!items || items.length === 0) {
+        throw new Error('Cart is empty');
+      }
+      
+      const firstProductId = items[0].productId;
+      const freshProduct = await apiService.getProductById(firstProductId);
+      const resolvedShopId = freshProduct?.shopId?._id || freshProduct?.shopId || '';
+      const shopId = typeof resolvedShopId === 'string' ? resolvedShopId : String(resolvedShopId || '');
+      
+      if (!shopId) {
+        throw new Error('No shop found for this order. Please refresh and try again.');
+      }
+
+      // Validate all items
+      const products = JSON.parse(localStorage.getItem('products') || '[]');
+      const mongoIdRegex = /^[a-f\d]{24}$/i;
+      const normalizedItems: Array<{ productId: string; quantity: number }> = [];
+      for (const item of items) {
+        const product = products.find((p: any) => p.id === item.productId);
+        if (!product) {
+          throw new Error(`Product ${item.productId} is no longer available. Please refresh your cart.`);
+        }
+        if (product.status !== 'available') {
+          throw new Error(`Product "${product.productName}" is currently unavailable.`);
+        }
+        if (product.stockQuantity < item.quantity) {
+          throw new Error(`Only ${product.stockQuantity} items available for "${product.productName}". Please update your cart.`);
+        }
+        const candidateId = product.id || item.productId;
+        if (!mongoIdRegex.test(candidateId)) {
+          throw new Error(`Invalid product reference for "${product.productName}". Please remove and re-add the item.`);
+        }
+        normalizedItems.push({ productId: candidateId, quantity: item.quantity });
+      }
+      
+      const shippingAddress = user?.locationDetails?.formattedAddress || user?.address || '';
+      const subtotal = getCartTotal();
+      const deliveryCharge = subtotal < 100 ? 30 : 0;
+      const totalAmount = subtotal + deliveryCharge;
+      
+      // Create order first (with pending payment)
+      // Backend will calculate delivery charge, but we need to pass correct total for payment
+      const order = await apiService.createOrder({
+        shopId,
+        shippingAddress,
+        items: normalizedItems,
+        paymentMethod: 'upi',
+        notes: 'Payment pending - Razorpay',
+      });
+
+      if (!order || !order._id) {
+        throw new Error('Order creation failed. Please try again.');
+      }
+
+      // Use order's totalAmount (which includes delivery charge calculated by backend)
+      const orderTotalAmount = order.totalAmount || totalAmount;
+      
+      // Create Razorpay payment order
+      const paymentData = await apiService.createPaymentOrder(order._id, orderTotalAmount, 'INR');
+      
+      if (!paymentData || !paymentData.orderId) {
+        throw new Error('Failed to create payment order');
+      }
+
+      // Initialize Razorpay checkout
+      if (!window.Razorpay) {
+        throw new Error('Razorpay SDK not loaded. Please refresh the page.');
+      }
+
+      const options = {
+        key: paymentData.key || RAZORPAY_KEY,
+        amount: Math.round(orderTotalAmount * 100), // Convert to paise, use order total from backend
+        currency: paymentData.currency || 'INR',
+        name: 'SmartMart',
+        description: `Order #${order.orderNumber || order._id}${deliveryCharge > 0 ? ' (includes ₹30 delivery charge)' : ''}`,
+        order_id: paymentData.orderId,
+        handler: async function (response: any) {
+          try {
+            setIsProcessing(true);
+            // Verify payment with backend
+            await apiService.verifyPayment(
+              response.razorpay_order_id,
+              response.razorpay_payment_id,
+              response.razorpay_signature,
+              paymentData.paymentId
+            );
+            
+            // Clear cart and show success
+            clearCart();
+            setOrderId(order._id);
+            setOrderPlaced(true);
+            setIsProcessing(false);
+          } catch (error: any) {
+            console.error('Payment verification failed:', error);
+            alert(`Payment verification failed: ${error?.message || 'Unknown error'}`);
+            setIsProcessing(false);
+          }
+        },
+        prefill: {
+          name: user?.name || '',
+          email: user?.email || '',
+          contact: user?.phoneNumber || '',
+        },
+        theme: {
+          color: '#2563eb',
+        },
+        modal: {
+          ondismiss: function() {
+            setIsProcessing(false);
+          }
+        }
+      };
+
+      const razorpay = new window.Razorpay(options);
+      razorpay.on('payment.failed', function (response: any) {
+        console.error('Payment failed:', response);
+        alert(`Payment failed: ${response.error?.description || 'Unknown error'}`);
+        setIsProcessing(false);
+      });
+      
+      razorpay.open();
+    } catch (error: any) {
+      console.error('Razorpay payment error:', error);
+      const errorMessage = error?.response?.data?.message || error?.message || 'Payment initialization failed. Please try again.';
+      alert(`❌ ${errorMessage}`);
+      setIsProcessing(false);
+    }
   };
 
   const handleCODPayment = async () => {
@@ -138,9 +258,12 @@ const PaymentPage: React.FC = () => {
         normalizedItems.push({ productId: candidateId, quantity: item.quantity });
       }
       
+      // Get the best available address: locationDetails.formattedAddress > address
+      const shippingAddress = user?.locationDetails?.formattedAddress || user?.address || '';
+      
       const order = await apiService.createOrder({
         shopId,
-        shippingAddress: user?.address || '',
+        shippingAddress,
         items: normalizedItems,
         paymentMethod: paymentMethod === 'cod' ? 'cash_on_delivery' : 'credit_card',
         notes: `paymentId=${paymentId}`,
@@ -311,19 +434,32 @@ const PaymentPage: React.FC = () => {
                   <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="text-gray-900">Free</span>
+                  <span className="text-gray-600">Delivery Charge</span>
+                  <span className="text-gray-900">
+                    {getCartTotal() < 100 ? (
+                      <span className="text-orange-600 font-medium">₹30.00</span>
+                    ) : (
+                      <span className="text-green-600">Free</span>
+                    )}
+                  </span>
                 </div>
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-600">Tax</span>
                   <span className="text-gray-900">₹0.00</span>
                 </div>
+                {getCartTotal() < 100 && (
+                  <p className="text-xs text-orange-600 mt-1">
+                    Orders below ₹100 incur a ₹30 delivery charge
+                  </p>
+                )}
               </div>
               
               <div className="border-t border-gray-200 pt-4 mb-6">
                 <div className="flex justify-between text-base font-medium">
                   <span className="text-gray-900">Total</span>
-                  <span className="text-gray-900">₹{getCartTotal().toFixed(2)}</span>
+                  <span className="text-gray-900">
+                    ₹{(getCartTotal() + (getCartTotal() < 100 ? 30 : 0)).toFixed(2)}
+                  </span>
                 </div>
               </div>
 
@@ -351,84 +487,6 @@ const PaymentPage: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* Mock Razorpay-like Checkout Modal */}
-      {showMockCheckout && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center">
-          <div className="w-full max-w-md bg-white rounded-2xl shadow-2xl overflow-hidden">
-            <div className="px-6 py-4 border-b flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <img src="/logo.png" alt="SmartMart" className="h-6 w-6" />
-                <span className="font-semibold">SmartMart Payments</span>
-              </div>
-              <button onClick={() => { setShowMockCheckout(false); setIsProcessing(false); }} className="text-gray-500 hover:text-gray-700">✕</button>
-            </div>
-
-            <div className="px-6 pt-4">
-              <div className="flex space-x-2 mb-4">
-                {(['upi','card','wallet'] as const).map(t => (
-                  <button key={t} onClick={() => setMockTab(t)} className={`px-3 py-2 rounded-lg text-sm font-medium ${mockTab===t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}>{t.toUpperCase()}</button>
-                ))}
-              </div>
-
-              {mockTab === 'upi' && (
-                <div className="space-y-3">
-                  <label className="block text-sm font-medium text-gray-700">UPI ID</label>
-                  <input value={upiId} onChange={e=>setUpiId(e.target.value)} placeholder="example@upi" className="w-full px-3 py-2 border rounded-md" />
-                </div>
-              )}
-
-              {mockTab === 'card' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Cardholder Name</label>
-                    <input value={cardName} onChange={e=>setCardName(e.target.value)} className="w-full px-3 py-2 border rounded-md" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700">Card Number</label>
-                    <input value={cardNumber} onChange={e=>setCardNumber(e.target.value)} placeholder="4111 1111 1111 1111" className="w-full px-3 py-2 border rounded-md" />
-                  </div>
-                  <div className="flex space-x-3">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700">Expiry (MM/YY)</label>
-                      <input value={cardExpiry} onChange={e=>setCardExpiry(e.target.value)} placeholder="12/28" className="w-full px-3 py-2 border rounded-md" />
-                    </div>
-                    <div className="w-28">
-                      <label className="block text-sm font-medium text-gray-700">CVV</label>
-                      <input value={cardCvv} onChange={e=>setCardCvv(e.target.value)} placeholder="123" className="w-full px-3 py-2 border rounded-md" />
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {mockTab === 'wallet' && (
-                <div className="space-y-2 text-sm text-gray-700">
-                  <p>Select a wallet:</p>
-                  <div className="grid grid-cols-2 gap-3">
-                    {['Paytm','PhonePe','Amazon Pay','Mobikwik'].map(w => (
-                      <button key={w} className={`px-3 py-2 rounded-lg border ${'bg-gray-50 hover:bg-gray-100'}`}>{w}</button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              <div className="py-4 space-y-2">
-                <div className="flex items-center justify-between text-sm">
-                  <span className="text-gray-600">Amount</span>
-                  <span className="font-semibold">₹{getCartTotal().toFixed(2)}</span>
-                </div>
-                <button
-                  onClick={() => { setIsProcessing(true); setTimeout(()=>{ setShowMockCheckout(false); handlePaymentSuccess('MOCK_'+Date.now()); }, 800); }}
-                  className="w-full bg-blue-600 text-white py-3 rounded-lg font-medium hover:bg-blue-700"
-                >
-                  Pay Now
-                </button>
-                <p className="text-[11px] text-gray-500 text-center">This is a mock checkout for development only.</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

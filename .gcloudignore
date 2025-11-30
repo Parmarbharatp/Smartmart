@@ -1,0 +1,95 @@
+# Folders/files to ignore during upload to Google Cloud Build
+# -------------------------------------------------------------
+
+# Ignore local node dependency folders (at any level)
+**/node_modules/
+node_modules/
+backend/node_modules/
+project/node_modules/
+*.log
+package-lock.json
+backend/package-lock.json
+project/package-lock.json
+
+# Ignore common local and environment specific files
+# Root level env files
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+.env.test
+.env.staging
+
+# Backend environment files
+backend/.env
+backend/.env.local
+backend/.env.*.local
+backend/.env.production
+backend/.env.development
+backend/.env.test
+backend/.env.staging
+backend/config.env
+backend/config.example.env
+backend/config.*.env
+
+# Frontend/Project environment files
+project/.env
+project/.env.local
+project/.env.*.local
+project/.env.production
+project/.env.development
+project/.env.test
+project/.env.staging
+project/env.example
+project/env.*.example
+project/config.env
+project/config.example.env
+
+# Git and ignore files
+.git/
+.gitignore
+.gcloudignore
+.dockerignore
+
+# Ignore frontend project (not needed for backend deployment)
+project/
+project/dist/
+project/build/
+
+# Ignore test files
+backend/*.test.js
+backend/test-*.js
+backend/simple-test.js
+backend/test-api.js
+backend/test-auth.js
+backend/debug-registration.js
+
+# Ignore documentation
+*.md
+README.md
+backend/README.md
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore logs
+logs/
+*.log
+
+# Ignore temporary files
+tmp/
+temp/
+backend/uploads/temp/*
+
+# Ignore other deployment configs
+railway.json
+start-smartmart.bat
+backend/start.bat

@@ -31,9 +31,9 @@ A secure and scalable backend API for the SmartMart e-commerce platform, built w
    ```
 
 3. **Set up environment variables:**
-   - Copy `config.env` and update the values:
+   - Copy `config.example.env` → `config.env` (or `.env` if you prefer):
    ```bash
-   cp config.env .env
+   cp config.example.env config.env
    ```
    - Update the following variables:
      - `JWT_SECRET`: Your secret key for JWT tokens
@@ -64,7 +64,9 @@ A secure and scalable backend API for the SmartMart e-commerce platform, built w
 | `JWT_SECRET` | JWT signing secret | fallback-secret-key |
 | `JWT_EXPIRES_IN` | JWT expiration time | 7d |
 | `MONGODB_URI` | MongoDB connection string | mongodb://localhost:27017/smartmart |
-| `FRONTEND_URL` | Frontend URL for CORS | http://localhost:5173 |
+| `FRONTEND_URL` | Primary frontend URL for CORS | http://localhost:5173 |
+| `FRONTEND_URLS` | Comma-separated list of allowed frontend origins (useful for staging + production) | Same as `FRONTEND_URL` |
+| `SERVE_FRONTEND` | `true` to serve the built frontend from `project/dist`, `false` when hosting frontend separately | true |
 
 ## 📚 API Endpoints
 
@@ -229,11 +231,25 @@ curl -X POST http://localhost:5000/api/auth/login \
 
 ## 🚀 Deployment
 
-1. **Set production environment variables**
-2. **Use PM2 or similar process manager**
-3. **Set up reverse proxy (Nginx)**
-4. **Configure SSL certificates**
-5. **Set up monitoring and logging**
+### Railway (Backend API)
+
+1. **Create a new Railway project** and select “Deploy from GitHub” or push this repo with the Railway CLI.
+2. **Set the service variables** (Dashboard → Variables). At minimum configure:
+   - `PORT=8080` (Railway injects this automatically, but setting it explicitly is safe)
+   - `NODE_ENV=production`
+   - `SERVE_FRONTEND=false` (since the SPA will live elsewhere)
+   - `FRONTEND_URLS=https://your-frontend-domain.com`
+   - `MONGODB_URI`, `JWT_SECRET`, `SMTP_*`, `PAYMENT_GATEWAY` keys, etc. (copy from `config.example.env`)
+3. **Start command:** `npm run start`
+4. **Enable persistent volumes** if you plan to store uploads locally, otherwise use object storage (S3, etc.).
+5. **Trigger a deploy.** Railway will expose a public URL (e.g., `https://smartmart-production.up.railway.app`). Use this as the API base for the frontend (`VITE_API_URL`).
+
+### Other hosting targets
+
+- Use the same environment variables shown in `config.example.env`.
+- When serving the SPA from the backend, build the frontend (`npm run build` inside `project/`) and keep `SERVE_FRONTEND=true`.
+- Place the compiled `project/dist` folder on the server alongside the backend so Express can serve it.
+- Use a process manager like PM2 and put the service behind an HTTPS-enabled reverse proxy (Nginx, Caddy, etc.).
 
 ## 📝 License
 

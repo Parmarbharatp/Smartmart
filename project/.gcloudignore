@@ -1,0 +1,60 @@
+# Folders/files to ignore during upload to Google Cloud Build
+# -------------------------------------------------------------
+
+# Ignore local node dependency folders
+node_modules/
+backend/node_modules/
+project/node_modules/
+
+# Ignore common local and environment specific files
+.env
+.env.local
+.env.*.local
+backend/config.env
+backend/.env
+.git/
+.gitignore
+.gcloudignore
+.dockerignore
+
+# Ignore frontend project (not needed for backend deployment)
+project/
+project/dist/
+project/build/
+
+# Ignore test files
+backend/*.test.js
+backend/test-*.js
+backend/simple-test.js
+backend/test-api.js
+backend/test-auth.js
+backend/debug-registration.js
+
+# Ignore documentation
+*.md
+README.md
+backend/README.md
+
+# Ignore IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Ignore OS files
+.DS_Store
+Thumbs.db
+
+# Ignore logs
+logs/
+*.log
+
+# Ignore temporary files
+tmp/
+temp/
+backend/uploads/temp/*
+
+# Ignore other deployment configs
+railway.json
+start-smartmart.bat
+backend/start.bat

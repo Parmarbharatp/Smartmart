@@ -404,6 +404,72 @@ class ApiService {
     return res.data?.order;
   }
 
+  // ============ Payments ============
+  async createPaymentOrder(orderId: string, amount: number, currency: string = 'INR'): Promise<any> {
+    const res = await this.request<any>('/payments/create-order', {
+      method: 'POST',
+      body: JSON.stringify({ orderId, amount, currency }),
+    });
+    return res.data;
+  }
+
+  async verifyPayment(razorpay_order_id: string, razorpay_payment_id: string, razorpay_signature: string, paymentId?: string): Promise<any> {
+    const res = await this.request<any>('/payments/verify', {
+      method: 'POST',
+      body: JSON.stringify({ razorpay_order_id, razorpay_payment_id, razorpay_signature, paymentId }),
+    });
+    return res.data;
+  }
+
+  async getPayment(orderId: string): Promise<any> {
+    const res = await this.request<any>(`/payments/${orderId}`);
+    return res.data?.payment;
+  }
+
+  // ============ Wallets ============
+  async getWalletBalance(): Promise<any> {
+    const res = await this.request<any>('/wallets/balance');
+    return res.data;
+  }
+
+  async getWalletTransactions(params: { page?: number; limit?: number; transactionType?: string; revenueType?: string; status?: string } = {}): Promise<any> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.transactionType) query.set('transactionType', params.transactionType);
+    if (params.revenueType) query.set('revenueType', params.revenueType);
+    if (params.status) query.set('status', params.status);
+    const res = await this.request<any>(`/wallets/transactions${query.toString() ? `?${query.toString()}` : ''}`);
+    return res.data;
+  }
+
+  // ============ Payouts ============
+  async requestPayout(payload: {
+    amount: number;
+    payoutMethod: 'upi' | 'bank_transfer' | 'wallet';
+    upiId?: string;
+    bankAccountNumber?: string;
+    bankAccountName?: string;
+    bankIFSC?: string;
+    bankName?: string;
+  }): Promise<any> {
+    const res = await this.request<any>('/payouts/request', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+    console.log('Payout API response:', res);
+    return res.data?.payout || res.data;
+  }
+
+  async getMyPayouts(params: { page?: number; limit?: number; status?: string } = {}): Promise<any> {
+    const query = new URLSearchParams();
+    if (params.page) query.set('page', String(params.page));
+    if (params.limit) query.set('limit', String(params.limit));
+    if (params.status) query.set('status', params.status);
+    const res = await this.request<any>(`/payouts/my-payouts${query.toString() ? `?${query.toString()}` : ''}`);
+    return res.data;
+  }
+
   // Debug method to check all orders
   async getAllOrdersDebug(): Promise<any[]> {
     const res = await this.request<any>('/orders/debug/all');

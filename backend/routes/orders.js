@@ -4,9 +4,48 @@ import { body, validationResult } from 'express-validator';
 import { Order } from '../models/Order.js';
 import { Product } from '../models/Product.js';
 import { Shop } from '../models/Shop.js';
+import { User } from '../models/User.js';
 import { verifyToken } from '../middleware/auth.js';
 
 const router = express.Router();
+
+// Helper function to get the best available address from order and customer
+const getOrderAddress = (order, customer) => {
+  // Priority: order.shippingAddress > customer.locationDetails.formattedAddress > customer.address
+  const orderShippingAddress = order?.shippingAddress;
+  const customerLocationDetails = customer?.locationDetails;
+  const customerAddress = customer?.address;
+  
+  if (orderShippingAddress && String(orderShippingAddress).trim() !== '') {
+    return String(orderShippingAddress);
+  }
+  if (customerLocationDetails?.formattedAddress && String(customerLocationDetails.formattedAddress).trim() !== '') {
+    return String(customerLocationDetails.formattedAddress);
+  }
+  if (customerAddress && String(customerAddress).trim() !== '') {
+    return String(customerAddress);
+  }
+  return 'Address not available';
+};
+
+// Helper function to enrich order with computed address
+const enrichOrderWithAddress = (order) => {
+  // Convert Mongoose document to plain object if needed
+  const orderObj = order.toObject ? order.toObject({ virtuals: true }) : (typeof order === 'object' ? { ...order } : order);
+  const customer = orderObj.customerId || (order.customerId ? (order.customerId.toObject ? order.customerId.toObject() : order.customerId) : null);
+  
+  // Get the computed address
+  const displayAddress = getOrderAddress(orderObj, customer);
+  
+  // Add displayAddress and update shippingAddress for backward compatibility
+  orderObj.displayAddress = displayAddress;
+  // Only update shippingAddress if it's empty or not set
+  if (!orderObj.shippingAddress || String(orderObj.shippingAddress).trim() === '') {
+    orderObj.shippingAddress = displayAddress;
+  }
+  
+  return orderObj;
+};
 
 // Validation middleware
 const validateOrder = [
@@ -66,7 +105,7 @@ router.get('/', verifyToken, async (req, res) => {
     }
     
     const orders = await Order.find(query)
-      .populate('customerId', 'name email phoneNumber')
+      .populate('customerId', 'name email phoneNumber address locationDetails')
       // Include ownerId for downstream access checks in UI
       .populate('shopId', 'shopName address contactInfo ownerId')
       .populate('deliveryBoyId', 'name phoneNumber')
@@ -77,10 +116,13 @@ router.get('/', verifyToken, async (req, res) => {
     
     const total = await Order.countDocuments(query);
     
+    // Enrich orders with computed address
+    const enrichedOrders = orders.map(order => enrichOrderWithAddress(order));
+    
     res.status(200).json({
       status: 'success',
       data: {
-        orders,
+        orders: enrichedOrders,
         pagination: {
           current: parseInt(page),
           pages: Math.ceil(total / limit),
@@ -108,7 +150,7 @@ router.get('/', verifyToken, async (req, res) => {
 router.get('/:id([0-9a-fA-F]{24})', verifyToken, async (req, res) => {
   try {
   const order = await Order.findById(req.params.id)
-      .populate('customerId', 'name email phoneNumber address')
+      .populate('customerId', 'name email phoneNumber address locationDetails')
       // Include ownerId to avoid access-check errors
       .populate('shopId', 'shopName address contactInfo ownerId')
       .populate('deliveryBoyId', 'name phoneNumber')
@@ -135,9 +177,12 @@ router.get('/:id([0-9a-fA-F]{24})', verifyToken, async (req, res) => {
       });
     }
     
+    // Enrich order with computed address
+    const enrichedOrder = enrichOrderWithAddress(order);
+    
     res.status(200).json({
       status: 'success',
-      data: { order }
+      data: { order: enrichedOrder }
     });
   } catch (error) {
     console.error('Get order error:', error);
@@ -154,7 +199,7 @@ router.get('/:id([0-9a-fA-F]{24})', verifyToken, async (req, res) => {
 router.get('/:id([0-9a-fA-F]{24})/details', verifyToken, async (req, res) => {
   try {
     const order = await Order.findById(req.params.id)
-      .populate('customerId', 'name email phoneNumber address')
+      .populate('customerId', 'name email phoneNumber address locationDetails')
       .populate('shopId', 'shopName address contactInfo ownerId')
       .populate('deliveryBoyId', 'name phoneNumber vehicleType licenseNumber')
       .populate('items.productId', 'productName imageUrls price description category');
@@ -178,6 +223,9 @@ router.get('/:id([0-9a-fA-F]{24})/details', verifyToken, async (req, res) => {
       });
     }
     
+    // Get the best available address
+    const displayAddress = getOrderAddress(order, order.customerId);
+    
     // Format the response with comprehensive details
     const orderDetails = {
       order: {
@@ -186,7 +234,7 @@ router.get('/:id([0-9a-fA-F]{24})/details', verifyToken, async (req, res) => {
         totalAmount: order.totalAmount,
         status: order.status,
         paymentStatus: order.paymentStatus,
-        shippingAddress: order.shippingAddress,
+        shippingAddress: displayAddress, // Use computed address
         deliveryStatus: order.deliveryStatus,
         deliveryNotes: order.deliveryNotes,
         createdAt: order.createdAt,
@@ -197,7 +245,7 @@ router.get('/:id([0-9a-fA-F]{24})/details', verifyToken, async (req, res) => {
         name: order.customerId.name,
         email: order.customerId.email,
         phoneNumber: order.customerId.phoneNumber,
-        address: order.customerId.address
+        address: displayAddress // Use computed address
       } : null,
       shopData: order.shopId ? {
         id: order.shopId._id,
@@ -281,6 +329,20 @@ router.post('/', verifyToken, validateOrder, async (req, res) => {
       });
     }
     
+    // Get customer's address - use provided shippingAddress, or fallback to customer's locationDetails or address
+    let finalShippingAddress = shippingAddress || '';
+    if (!finalShippingAddress || finalShippingAddress.trim() === '') {
+      const customer = await User.findById(req.user.id);
+      if (customer) {
+        // Priority: locationDetails.formattedAddress > address
+        if (customer.locationDetails && customer.locationDetails.formattedAddress) {
+          finalShippingAddress = customer.locationDetails.formattedAddress;
+        } else if (customer.address) {
+          finalShippingAddress = customer.address;
+        }
+      }
+    }
+    
     // Verify products and calculate total
     let totalAmount = 0;
     const orderItems = [];
@@ -318,12 +380,23 @@ router.post('/', verifyToken, validateOrder, async (req, res) => {
       });
     }
     
+    // Calculate delivery charge: ₹30 for orders less than ₹100
+    const DELIVERY_CHARGE_THRESHOLD = 100;
+    const DELIVERY_CHARGE_AMOUNT = 30;
+    let deliveryCharge = 0;
+    
+    if (totalAmount < DELIVERY_CHARGE_THRESHOLD) {
+      deliveryCharge = DELIVERY_CHARGE_AMOUNT;
+      totalAmount += deliveryCharge;
+    }
+    
     // Create order
     const order = new Order({
       customerId: req.user.id,
       shopId,
-      shippingAddress,
+      shippingAddress: finalShippingAddress,
       totalAmount,
+      shippingCost: deliveryCharge, // Store delivery charge in shippingCost field
       paymentMethod,
       paymentStatus: paymentMethod === 'cash_on_delivery' ? 'pending' : 'pending',
       items: orderItems,
@@ -351,15 +424,18 @@ router.post('/', verifyToken, validateOrder, async (req, res) => {
     
     // Populate order data for response
     await order.populate([
-      { path: 'customerId', select: 'name email phoneNumber' },
+      { path: 'customerId', select: 'name email phoneNumber address locationDetails' },
       { path: 'shopId', select: 'shopName address contactInfo' },
       { path: 'items.productId', select: 'productName imageUrls price' }
     ]);
     
+    // Enrich order with computed address (for display, though it should already be set)
+    const enrichedOrder = enrichOrderWithAddress(order);
+    
     res.status(201).json({
       status: 'success',
       message: 'Order created successfully',
-      data: { order }
+      data: { order: enrichedOrder }
     });
   } catch (error) {
     console.error('Create order error:', error);
@@ -529,7 +605,7 @@ router.put('/:id/make-available-for-delivery', verifyToken, async (req, res) => 
 router.get('/debug/all', verifyToken, async (req, res) => {
   try {
     const orders = await Order.find({})
-      .populate('customerId', 'name email phoneNumber')
+      .populate('customerId', 'name email phoneNumber address locationDetails')
       .populate('shopId', 'shopName address contactInfo')
       .populate('deliveryBoyId', 'name phoneNumber')
       .sort({ createdAt: -1 })
@@ -547,9 +623,12 @@ router.get('/debug/all', verifyToken, async (req, res) => {
       });
     });
     
+    // Enrich orders with computed address
+    const enrichedOrders = orders.map(order => enrichOrderWithAddress(order));
+    
     res.status(200).json({
       status: 'success',
-      data: { orders }
+      data: { orders: enrichedOrders }
     });
   } catch (error) {
     console.error('Debug all orders error:', error);
@@ -598,7 +677,7 @@ router.get('/available-for-delivery', verifyToken, async (req, res) => {
     })));
     
     const orders = await Order.find(query)
-      .populate('customerId', 'name email phoneNumber address')
+      .populate('customerId', 'name email phoneNumber address locationDetails')
       .populate('shopId', 'shopName address contactInfo')
       .populate('items.productId', 'productName imageUrls price')
       .sort({ createdAt: -1 })
@@ -609,10 +688,13 @@ router.get('/available-for-delivery', verifyToken, async (req, res) => {
     
     console.log(`Found ${orders.length} available orders out of ${total} total matching orders`);
     
+    // Enrich orders with computed address
+    const enrichedOrders = orders.map(order => enrichOrderWithAddress(order));
+    
     res.status(200).json({
       status: 'success',
       data: {
-        orders,
+        orders: enrichedOrders,
         pagination: {
           current: pageNum,
           pages: Math.ceil(total / limitNum),
@@ -670,15 +752,18 @@ router.put('/:id/accept-delivery', verifyToken, async (req, res) => {
     
     // Populate order data for response
     await order.populate([
-      { path: 'customerId', select: 'name email phoneNumber address' },
+      { path: 'customerId', select: 'name email phoneNumber address locationDetails' },
       { path: 'shopId', select: 'shopName address contactInfo' },
       { path: 'items.productId', select: 'productName imageUrls price' }
     ]);
     
+    // Enrich order with computed address
+    const enrichedOrder = enrichOrderWithAddress(order);
+    
     res.status(200).json({
       status: 'success',
       message: 'Delivery accepted successfully',
-      data: { order }
+      data: { order: enrichedOrder }
     });
   } catch (error) {
     console.error('Accept delivery error:', error);
@@ -747,19 +832,36 @@ router.put('/:id/update-delivery-status', verifyToken, async (req, res) => {
     // Automatically complete payment when delivery is successful
     if (deliveryStatus === 'delivered') {
       await order.completePaymentOnDelivery();
+      
+      // Refresh order to ensure we have latest data including deliveryBoyId
+      await order.populate('deliveryBoyId');
+      
+      // Distribute revenue after successful delivery
+      try {
+        const { distributeRevenue } = await import('../utils/revenueSplit.js');
+        const result = await distributeRevenue(order._id);
+        console.log('Revenue distribution result:', result);
+      } catch (revenueError) {
+        console.error('Revenue distribution error (non-blocking):', revenueError);
+        // Don't fail the delivery update if revenue distribution fails
+        // It can be retried later
+      }
     }
     
     // Populate order data for response
     await order.populate([
-      { path: 'customerId', select: 'name email phoneNumber address' },
+      { path: 'customerId', select: 'name email phoneNumber address locationDetails' },
       { path: 'shopId', select: 'shopName address contactInfo' },
       { path: 'items.productId', select: 'productName imageUrls price' }
     ]);
     
+    // Enrich order with computed address
+    const enrichedOrder = enrichOrderWithAddress(order);
+    
     res.status(200).json({
       status: 'success',
       message: 'Delivery status updated successfully',
-      data: { order }
+      data: { order: enrichedOrder }
     });
   } catch (error) {
     console.error('Update delivery status error:', error);
@@ -829,15 +931,18 @@ router.put('/:id/update-payment-status', verifyToken, async (req, res) => {
     
     // Populate order data for response
     await order.populate([
-      { path: 'customerId', select: 'name email phoneNumber address' },
+      { path: 'customerId', select: 'name email phoneNumber address locationDetails' },
       { path: 'shopId', select: 'shopName address contactInfo' },
       { path: 'items.productId', select: 'productName imageUrls price' }
     ]);
     
+    // Enrich order with computed address
+    const enrichedOrder = enrichOrderWithAddress(order);
+    
     res.status(200).json({
       status: 'success',
       message: 'Payment status updated successfully',
-      data: { order }
+      data: { order: enrichedOrder }
     });
   } catch (error) {
     console.error('Update payment status error:', error);

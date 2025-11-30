@@ -6,6 +6,7 @@ import rateLimit from 'express-rate-limit';
 import dotenv from 'dotenv';
 import connectDB from './config/database.js';
 import path from 'path';
+import fs from 'fs';
 import { fileURLToPath } from 'url';
 import authRoutes from './routes/auth.js';
 import shopRoutes from './routes/shops.js';
@@ -15,15 +16,32 @@ import orderRoutes from './routes/orders.js';
 import cartRoutes from './routes/cart.js';
 import reviewRoutes from './routes/reviews.js';
 import aiRoutes from './routes/ai.js';
+import paymentRoutes from './routes/payments.js';
+import walletRoutes from './routes/wallets.js';
+import payoutRoutes from './routes/payouts.js';
 import { User } from './models/User.js';
 import { Category } from './models/Category.js';
 import bcrypt from 'bcryptjs';
 
 // Load environment variables
 dotenv.config({ path: './config.env' });
+// Example code for index.js
+
+app.get('/', (req, res) => {
+  res.status(200).json({
+    message: "SmartMart Backend is Active!",
+    version: "1.0"
+  });
+});
+
+// Baaki sab aapke /api routes ya doosre routes yahan honge
 
 const app = express();
 const PORT = process.env.PORT || 5000;
+const FRONTEND_URL_ENV = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:5173';
+const allowedOrigins = FRONTEND_URL_ENV.split(',')
+  .map(origin => origin.trim())
+  .filter(Boolean);
 
 // Connect to MongoDB
 connectDB();
@@ -33,24 +51,89 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:5173',
+  origin: allowedOrigins.length === 1 ? allowedOrigins[0] : allowedOrigins,
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
+console.log('✅ Allowed CORS origins:', allowedOrigins);
 
-// Rate limiting
-const limiter = rateLimit({
+// Rate limiting - More lenient for auth endpoints (sign up/sign in)
+// Allows more signups/logins since they're legitimate user actions needed for scaling to 1M+ users
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_AUTH_MAX) || 50, // 50 auth requests per IP per 15 min (supports multiple signups from same network/office)
+  message: {
+    error: 'Too many authentication attempts from this IP. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skipSuccessfulRequests: true, // Don't count successful logins against limit (only failed attempts)
+});
+
+// Rate limiting - Very lenient for READ operations (GET requests) - Product browsing, viewing, searching
+// Users browse many products, so they need high limits for GET requests
+const readLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_READ_MAX) || 1000, // 1000 GET requests per IP per 15 min (supports heavy product browsing)
+  message: {
+    error: 'Too many read requests from this IP. Please slow down your browsing.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Only apply to GET requests (read operations)
+    return req.method !== 'GET';
+  }
+});
+
+// Rate limiting - Stricter for WRITE operations (POST/PUT/DELETE) - Security protection
+// Create, update, delete operations need stricter limits to prevent abuse
+const writeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: parseInt(process.env.RATE_LIMIT_WRITE_MAX) || 200, // 200 write requests per IP per 15 min (enough for normal usage, prevents abuse)
+  message: {
+    error: 'Too many write requests from this IP. Please try again later.'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Only apply to POST, PUT, DELETE requests (write operations)
+    return !['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method);
+  }
+});
+
+// Rate limiting - General fallback limit (only for routes not covered by specific limiters)
+// This is a safety net but read/write limiters handle most cases
+const generalLimiter = rateLimit({
   windowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS) || 15 * 60 * 1000, // 15 minutes
-  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 100, // limit each IP to 100 requests per windowMs
+  max: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS) || 500, // 500 total requests per IP per windowMs as fallback
   message: {
     error: 'Too many requests from this IP, please try again later.'
   },
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip for auth routes (have their own limiter)
+    // Skip for GET requests (handled by readLimiter)
+    // Skip for POST/PUT/DELETE (handled by writeLimiter)
+    return req.path.startsWith('/api/auth/register') || 
+           req.path.startsWith('/api/auth/login') ||
+           req.method === 'GET' ||
+           ['POST', 'PUT', 'DELETE', 'PATCH'].includes(req.method);
+  }
 });
 
-app.use('/api/', limiter);
+// Apply limiters in order:
+// 1. Auth-specific limiter (highest priority for auth routes)
+app.use('/api/auth/register', authLimiter);
+app.use('/api/auth/login', authLimiter);
+// 2. Read limiter (for GET requests - product browsing, viewing)
+app.use('/api/', readLimiter);
+// 3. Write limiter (for POST/PUT/DELETE - create/update/delete operations)
+app.use('/api/', writeLimiter);
+// 4. General limiter as fallback (for any other requests not covered above)
+app.use('/api/', generalLimiter);
 
 // Body parsing middleware
 app.use(express.json({ limit: '10mb' }));
@@ -78,22 +161,30 @@ app.use('/api/orders', orderRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/reviews', reviewRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/payments', paymentRoutes);
+app.use('/api/wallets', walletRoutes);
+app.use('/api/payouts', payoutRoutes);
 
-// Serve frontend in production
+// Serve frontend in production (optional)
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distPath = path.resolve(__dirname, '../project/dist');
-app.use(express.static(distPath));
+const shouldServeFrontend = process.env.SERVE_FRONTEND !== 'false';
 
-// SPA fallback: serve index.html for non-API routes
-app.get(/^(?!\/api\/).*/, (req, res, next) => {
-  // Only serve the SPA if the file exists (build done)
-  res.sendFile(path.join(distPath, 'index.html'), (err) => {
-    if (err) {
-      next();
-    }
+if (shouldServeFrontend && fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+
+  // SPA fallback: serve index.html for non-API routes
+  app.get(/^(?!\/api\/).*/, (req, res, next) => {
+    res.sendFile(path.join(distPath, 'index.html'), (err) => {
+      if (err) {
+        next();
+      }
+    });
   });
-});
+} else {
+  console.log('⚠️  Skipping static frontend serving (SERVE_FRONTEND disabled or dist missing).');
+}
 
 // 404 handler (for APIs and unmatched files)
 app.use('*', (req, res) => {

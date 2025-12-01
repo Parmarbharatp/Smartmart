@@ -27,6 +27,8 @@ import bcrypt from 'bcryptjs';
 dotenv.config({ path: './config.env' });
 // Example code for index.js
 
+const app = express();
+const PORT = process.env.PORT || 5000;
 app.get('/', (req, res) => {
   res.status(200).json({
     message: "SmartMart Backend is Active!",
@@ -36,8 +38,7 @@ app.get('/', (req, res) => {
 
 // Baaki sab aapke /api routes ya doosre routes yahan honge
 
-const app = express();
-const PORT = process.env.PORT || 5000;
+
 const FRONTEND_URL_ENV = process.env.FRONTEND_URLS || process.env.FRONTEND_URL || 'http://localhost:5173';
 const allowedOrigins = FRONTEND_URL_ENV.split(',')
   .map(origin => origin.trim())
